@@ -1,0 +1,20 @@
+#!/bin/bash
+#SBATCH -A durham
+#SBATCH -p cosma
+#SBATCH --job-name="slurm_alf_Spec"
+#SBATCH --time=0-24:00
+#SBATCH -D "/cosma5/data/durham/dc-poci1/alf"
+#SBATCH --output="/cosma5/data/durham/dc-poci1/alf/slurm_alfSpec.log"
+#SBATCH --error="/cosma5/data/durham/dc-poci1/alf/slurm_alfSpec.log"
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=50G
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=adriano.poci@durham.ac.uk
+
+module load gnu_comp
+module load python/3.10.1
+module load openmpi/20190429
+module load cmake/3.18.1
+
+ipython slurm_alfSpec.py
