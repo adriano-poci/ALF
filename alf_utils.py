@@ -25,6 +25,10 @@ v1.0:   7 June 2022
 v1.1:   Added `smask` keyword to `prepSpec` to mask specific regions of the
             spectra. 23 June 2022
 v1.2:   Added `getMass` and `getM2L`. 19 July 2022
+v1.3:   Clean old queue files before writing new ones. 7 September 2022
+v1.4:   Added aperture fitting and `sed` replacements scripts to `alfWrite`;
+        Generate local copies of executables for each galaxy. 28 September 2022
+v1.5:   Added `priors` kwarg to `alfWrite`. 13 October 2022
 """
 from __future__ import print_function, division
 
@@ -52,7 +56,7 @@ import subprocess as sp
 from inspect import getargvalues as ingav, currentframe as incf
 from svo_filters import svo
 
-from scripts import read_alf as ra
+from alf.scripts import read_alf as ra
 
 # Custom modules
 from dynamics.IFU.Galaxy import Mge, Schwarzschild
@@ -62,7 +66,6 @@ from cythonModules import C_utils as Cu
 from spectres import spectres
 
 from plotbin.sauron_colormap import register_sauron_colormap as srsc
-srsc()
 
 curdir = plp.Path(__file__).parent
 # ------------------------------------------------------------------------------
@@ -108,9 +111,8 @@ def prepSpec(galaxy, SN, instrument='MUSE', wRange=[4000, 10000], full=True,
     velRes = CTS.c/(tPix/museLSF) # lambda/DeltaLambda = c/DeltaVel = R
 
     relErr = binStat / binSpec
-    binSpec /= np.ma.median(binSpec[np.where((
-        tPix >= 6100) & (tPix <= 6200))[0], :], axis=0)
-    binStat = np.abs(binSpec)*relErr
+    binSpec /= np.ma.median(binSpec, axis=0)
+    binStat = np.ma.abs(binSpec)*relErr
 
     lDel = np.min(np.diff(tPix))
 
@@ -120,13 +122,26 @@ def prepSpec(galaxy, SN, instrument='MUSE', wRange=[4000, 10000], full=True,
             mask = (tPix >= (pair[0]-lDel)) & (tPix <= (pair[1]+lDel))
             weights[mask] = 0.0
 
-    for bin in tqdm(range(binSpec.shape[-1]), desc='Storing Spectra',
+    for binn in tqdm(range(binSpec.shape[-1]), desc='Storing Spectra',
         total=binSpec.shape[-1]):
-        np.savetxt(curdir/'indata'/f"{galaxy}_SN{SN:02d}_{bin:04d}.dat",
-            np.column_stack((tPix, binSpec[:, bin], binStat[:, bin],
+        np.savetxt(curdir/'indata'/f"{galaxy}_SN{SN:02d}_{binn:04d}.dat",
+            np.column_stack((tPix, binSpec[:, binn], binStat[:, binn],
             weights, velRes)), fmt='%20.10f',
             header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")
-    pdb.set_trace()
+    np.savetxt(curdir/'indata'/f"{galaxy}_SN{SN:02d}_aperture.dat",
+        np.column_stack((tPix, VO['aperSpec'], VO['aperStat'],
+        weights, velRes)), fmt='%20.10f',
+        header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")
+
+# ------------------------------------------------------------------------------
+
+def readSpec(afn):
+    tPix, spec, err, weights, vel = np.loadtxt(afn, unpack=True)
+    with open(afn, 'r') as sfn:
+        header = [line for line in sfn.readlines() if line.startswith('#')]
+    waves = np.array([head.lstrip('#').strip().split() for head in header],
+        dtype=float)
+    return waves, tPix, spec, err, weights, vel
 
 # ------------------------------------------------------------------------------
 
@@ -154,29 +169,33 @@ def alfRead():
 
 # ------------------------------------------------------------------------------
 
-def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[])):
+def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
+    priors=True):
 
     hours = np.ceil(hours).astype(int)
     hours = np.min((hours, qProps['timeMax']))
     if hours >= 24:
         days = np.floor(hours/24).astype(int)
         thours = hours - int(days*24)
-        timeStr = f"{days:d}-{thours:02d}:00"
+        timeStr = f"{days:d}-{thours:02d}:00:00"
     else:
-        timeStr = f"0-{hours:02d}:00"
+        timeStr = f"0-{hours:02d}:00:00"
     if 'queue' in qProps.keys():
         if 'cosma' in qProps['queue']:
-            timeStr = f"0-{hours:d}:00"
+            timeStr = f"0-{hours:d}:00:00"
 
     nScripts = np.ceil(nbins/500).astype(int)
 
     remain = nbins
 
+    for fil in (curdir/galaxy).glob('alf*.qsys'):
+        fil.unlink(missing_ok=False)
+
     for ss in range(nScripts):
         ws = '' # whitespace
         nl = r'\n' # newline
         sStr = ''
-        sStr += u'#!/bin/bash\n'
+        sStr += u'#!/bin/bash -l\n'
 
         add = 500*ss
         top = 500
@@ -191,19 +210,20 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[])):
         sStr += f'#SBATCH --job-name="alf_{galaxy}_SN{SN:02d}"\n'
         sStr += f"#SBATCH --time={timeStr}\n"
         sStr += u'#SBATCH --ntasks=1\n'
-        sStr += u'#SBATCH -N 1\n'
+        # sStr += u'#SBATCH -N 1\n'
         sStr += u'#SBATCH --cpus-per-task=16\n'
         sStr += u'#SBATCH --mem-per-cpu=3000\n'
         sStr += f'#SBATCH --array=0-{top}\n'
         sStr += u'#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL\n'
         sStr += u'#SBATCH --mail-user=adriano.poci@durham.ac.uk\n'
-        sStr += u'#SBATCH -o /dev/null # Standard out goes to piped file\n'
-        sStr += u'#SBATCH -e /dev/null # Standard err goes to piped file\n\n'
-
-        for mod in qProps['module']:
-            sStr += f"module load {'/'.join(mod)}\n"
+        sStr += f'#SBATCH -o {galaxy}/out.log # Standard out to galaxy\n'
+        sStr += f'#SBATCH -e {galaxy}/out.log # Standard err to galaxy\n'
+        sStr += f'#SBATCH --open-mode=append\n\n'
 
         sStr += u'source ${HOME}/.bashrc\n\n'
+        for mod in qProps['module']:
+            sStr += f"module load {'/'.join(mod)}\n"
+        sStr += f'export ALF_HOME={curdir}{plp.os.sep}\n\n'
         sStr += u'cd ${ALF_HOME}\n'
         if add > 0:
             sStr += u'declare idx=$(printf %04d $((${SLURM_ARRAY_TASK_ID} + '\
@@ -211,13 +231,108 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[])):
         else:
             sStr += u'declare idx=$(printf %04d ${SLURM_ARRAY_TASK_ID})\n'
         sStr += u'mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} '\
-            f'./bin/alf.exe "{galaxy}_SN{SN:02d}_${{idx}}" >& '\
-            f'"{galaxy}/out_${{idx}}.log"\n'
+            f'./{galaxy}/bin/alf.exe "{galaxy}_SN{SN:02d}_${{idx}}" 2>&1 | '\
+            f'tee -a "{galaxy}/out_${{idx}}.log"\n'
 
         sf = io.open(curdir/galaxy/f"alf{ss:02d}.qsys", 'w+', newline='')
         sf.write(sStr)
         sf.flush()
         sf.close()
+    
+    ws = '' # whitespace
+    nl = r'\n' # newline
+    sStr = ''
+    sStr += u'#!/bin/bash -l\n'
+
+    if 'owner' in qProps.keys():
+        sStr += f"#SBATCH -A {str(qProps['owner'])}\n"
+    if 'queue' in qProps.keys():
+        sStr += f"#SBATCH -p {str(qProps['queue'])}\n"
+    sStr += f'#SBATCH --job-name="alf_{galaxy}_SN{SN:02d}_aperture"\n'
+    sStr += f"#SBATCH --time={timeStr}\n"
+    sStr += u'#SBATCH --ntasks=1\n'
+    # sStr += u'#SBATCH -N 1\n'
+    sStr += u'#SBATCH --cpus-per-task=16\n'
+    sStr += u'#SBATCH --mem-per-cpu=3000\n'
+    sStr += u'#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL\n'
+    sStr += u'#SBATCH --mail-user=adriano.poci@durham.ac.uk\n'
+    sStr += f'#SBATCH -o {galaxy}/out.log # Standard out to galaxy\n'
+    sStr += f'#SBATCH -e {galaxy}/out.log # Standard err to galaxy\n'
+    sStr += f'#SBATCH --open-mode=append\n\n'
+
+    sStr += u'source ${HOME}/.bashrc\n\n'
+    for mod in qProps['module']:
+        sStr += f"module load {'/'.join(mod)}\n"
+
+    sStr += f'export ALF_HOME={curdir}{plp.os.sep}\n\n'
+    sStr += u'### Compile clean version of `alf`\n'
+    sStr += u'cd ${ALF_HOME}src\n'
+    sStr += u'cp alf.f90.perm alf.f90\n'
+    sStr += u'# Remove prior placeholders on velz\n'
+    sStr += u'sed -i "/prlo%velz = -999./d" alf.f90\n'
+    sStr += u'sed -i "/prhi%velz = 999./d" alf.f90\n'
+    sStr += u'make all && make clean\n'
+    sStr += u'cd ${ALF_HOME}\n'
+    sStr += u'# Run aperture fit\n'
+    sStr += u'mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} '\
+        f'./bin/alf.exe "{galaxy}_SN{SN:02d}_aperture" 2>&1 | tee -a '\
+        f'"{galaxy}/out_aperture.log"\n\n'
+    sStr += '# Read in the aperture fit\n'
+    sStr += u"Ipy='ipython --pylab --pprint --autoindent'\n"
+    sStr += f"galax='{galaxy}'\n"
+    sStr += f"SN={SN:d}\n"
+    sStr += u'pythonOutput=$($Ipy alf_aperRead.py -- -g "$galax" -sn "$SN")\n'
+    sStr += f'echo "$pythonOutput" 2>&1 | tee -a "{galaxy}/out_aperture.log"\n'
+    if priors:
+        sStr += u'# Temporary variable for the last line of the Python output\n'
+        sStr += u'readarray -t tmp <<< $(echo "$pythonOutput" | tail -n1)\n'
+        sStr += u'# Transform into bash array\n'
+        sStr += u"IFS=',' read -ra aperKin <<< "'"$tmp"\n'
+        sStr += u'echo "${aperKin[*]}" 2>&1 | tee -a "'\
+            f'{galaxy}/out_aperture.log"\n\n'
+        sStr += u'### Compile modified velocity priors\n'
+        sStr += u'cd src\n'
+        sStr += u'cp alf.f90.perm alf.f90\n'
+        sStr += u'# `bc` arithmetic to define the lower and upper velocity bounds\n'
+        sStr += u'newVLo=$(bc -l <<< "(${aperKin[0]} - ${aperKin[1]}) - '\
+            u'5.0 * (${aperKin[2]} + ${aperKin[3]})")\n'
+        sStr += u'newVHi=$(bc -l <<< "(${aperKin[0]} + ${aperKin[1]}) + '\
+            u'5.0 * (${aperKin[2]} + ${aperKin[3]})")\n'
+        sStr += u'sed -i "s/prlo%velz = -999./prlo%velz = ${newVLo}/g" alf.f90\n'
+        sStr += u'sed -i "s/prhi%velz = 999./prhi%velz = ${newVHi}/g" alf.f90\n'
+        sStr += u'# Replace the placeholder value in `sed` script\n'
+        sStr += u'sed -i "s/velz = 999/velz = ${aperKin[0]}/g" '\
+            '${ALF_HOME}${galax}/alf_replace.sed\n'
+        sStr += u'# Run `sed` using the multi-line script\n'
+        sStr += u'# Pipe to temporary file\n'
+        sStr += u'sed -n -f ${ALF_HOME}${galax}/alf_replace.sed alf.f90 >> '\
+            'alf_tmp.f90\n'
+        sStr += u'mv alf_tmp.f90 alf.f90\n\n'
+        sStr += u'make all && make clean\n\n'
+    sStr += u'# Move executables to local directory\n'
+    sStr += u'cd ${ALF_HOME}\n'
+    sStr += u'mkdir ${galax}/bin\n'
+    sStr += u'cp bin/* ${galax}/bin/\n'
+    sStr += u'find "$galax" -name "alf*.qsys" -type f -exec sbatch {} \;\n'
+
+    sf = io.open(curdir/galaxy/'startAlf.qsys', 'w+', newline='')
+    sf.write(sStr)
+    sf.flush()
+    sf.close()
+
+    sStr = ''
+    sStr += u"/'cz out of prior bounds, setting to 0.0'/ {\n"
+    sStr += f'{ws: <4s}p;n;\n'
+    sStr += f'{ws: <4s}/velz = 0.0/ {{\n'
+    sStr += f'{ws: <8s}s/velz = 0.0/velz = 999/;\n'
+    sStr += f'{ws: <8s}p;d;\n'
+    sStr += f'{ws: <12s}}}\n'
+    sStr += u'}\n'
+    sStr += u'p;\n'
+    sf = io.open(curdir/galaxy/'alf_replace.sed', 'w+', newline='')
+    sf.write(sStr)
+    sf.flush()
+    sf.close()
 
 # ------------------------------------------------------------------------------
 
@@ -1003,7 +1118,7 @@ def cleanIncompFull(mPath, dry=True):
             cmdm = fr'find {str(pDir)} -name "{key}*_ml*" -type f -delete'
             cmdr = fr'find {str(pDir)} -name "{key}*.run" -type f -delete'
             cmdd = fr'find {str(bDir)} -name "{key}*" -type d -exec rm '\
-                '-r "{{}}" \;'
+                r'-r "{{}}" \;'
             print(f"Deleting {key}*")
             sp.call(cmdm, shell=True)
             sp.call(cmdr, shell=True)

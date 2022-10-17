@@ -40,7 +40,7 @@ MODULE ALF_VARS
 
   !force the IMF to be a MW IMF if set
   !this is automatically assumed if fit_type=1,2
-  INTEGER :: mwimf=1
+  INTEGER :: mwimf=0
 
   !flag to fit either a double-power law IMF or power-law + cutoff
   !0 = single power-law
@@ -69,7 +69,7 @@ MODULE ALF_VARS
   INTEGER :: nonpimf_alpha = 2
 
   !fit two-component SFH. Also requires fit_type=0
-  INTEGER :: fit_two_ages=1
+  INTEGER :: fit_two_ages=0
 
   !regularize the non-parametric IMF
   INTEGER :: nonpimf_regularize=1
@@ -96,7 +96,7 @@ MODULE ALF_VARS
 
   !fit a polynomial to the ratio of model and data
   !if zero, then both data and model are continuum divided
-  INTEGER :: fit_poly=1
+  INTEGER :: fit_poly=0
   !mask emission lines? (if 0, then the em lines are incl in the fit)
   INTEGER :: maskem=0
   !apply template error function? (only works for SDSS stacks)

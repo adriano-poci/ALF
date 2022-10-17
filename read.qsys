@@ -11,7 +11,7 @@
 
 ml gcc/9.2.0
 ml openmpi/4.0.2
-ml python/3.8.5
+ml python/3.10.1
 ml anaconda3/2021.05
 
 ipython read.py

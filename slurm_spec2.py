@@ -1,18 +1,18 @@
 #!/cosma/local/Python/3.9.1-cosma7/bin/python3
 #SBATCH -A durham
 #SBATCH -p cosma
-#SBATCH --job-name="slurm_alf_Spec"
+#SBATCH --job-name="slurm_spec2"
 #SBATCH --time=0-12:00
 #SBATCH -D "/cosma5/data/durham/dc-poci1/alf"
-#SBATCH --output="/cosma5/data/durham/dc-poci1/alf/slurm_alfSpec.log"
-#SBATCH --error="/cosma5/data/durham/dc-poci1/alf/slurm_alfSpec.log"
+#SBATCH --output="/cosma5/data/durham/dc-poci1/alf/slurm_spec2.log"
+#SBATCH --error="/cosma5/data/durham/dc-poci1/alf/slurm_spec2.log"
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=50G
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=adriano.poci@durham.ac.uk
 """
-    slurm_alfSpec.py
+    slurm_spec2.py
     Adriano Poci
     Durham University
 

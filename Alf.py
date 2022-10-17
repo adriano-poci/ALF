@@ -24,6 +24,8 @@ v1.0:   17 June 2022
 v1.1:   Corrected bug when using `astropy` `hstack` changes the column names
             which can not be indexed using `self.labels` in `plot_posteriors`
             and `plot_traces`. 29 July 2022
+v1.2:   Manually handle notch filter (and other masked regions) in spectra in
+            `normalize_spectra`. 31 August 2022
 """
 
 import sys, pdb
@@ -41,8 +43,9 @@ from astropy.table import Table, Column, hstack
 curdir = plp.Path(__file__).parent
 
 class Alf(object):
-    def __init__(self, outfile, mPath=None):
-        self.outfile = outfile
+    def __init__(self, outpath, mPath=None):
+        self.outpath = outpath
+        self.outfile = self.outpath.stem
         if isinstance(mPath, type(None)):
             mPath = curdir
         self.mPath = plp.Path(mPath)
@@ -181,6 +184,13 @@ class Alf(object):
         self.spectra['m_flux_norm'] = deepcopy(self.spectra['m_flux'])
         self.spectra['d_flux_norm'] = deepcopy(self.spectra['d_flux'])
         self.spectra['unc_norm']    = deepcopy(self.spectra['unc'])
+        iwave, _, _, weights, _ = np.loadtxt(curdir/'indata'/\
+            f"{self.outfile}.dat", unpack=True)
+        twave = np.loadtxt(curdir/'results'/\
+            f"{self.outfile}.bestspec")
+        twave = twave[:, 0]
+        smask = (weights > 0)[(iwave >= np.min(twave)-5e-3) & \
+            (iwave <= np.max(twave)+5e-3)]
 
         chunks = 1000
         min_ = min(self.spectra['wave'])
@@ -188,22 +198,27 @@ class Alf(object):
         num  = int((max_ - min_)/chunks) + 1
 
         for i in range(num):
-            k = ((self.spectra['wave'] >= min_ + chunks*i) &
+            kd = ((self.spectra['wave'] >= min_ + chunks*i) &
+                 (self.spectra['wave'] <= min_ + chunks*(i+1)) & 
+                 smask)
+            km = ((self.spectra['wave'] >= min_ + chunks*i) &
                  (self.spectra['wave'] <= min_ + chunks*(i+1)))
 
-            if len(self.spectra['d_flux_norm'][k]) < 10:
+            if len(self.spectra['d_flux_norm'][kd]) < 10:
                 continue
 
-            coeffs = chebfit(self.spectra['wave'][k],
-                             self.spectra['d_flux_norm'][k], 2)
-            poly = chebval(self.spectra['wave'][k], coeffs)
-            self.spectra['d_flux_norm'][k] = self.spectra['d_flux_norm'][k]/poly
-            self.spectra['unc_norm'][k] = self.spectra['unc_norm'][k]/poly
+            coeffs = chebfit(self.spectra['wave'][kd],
+                             self.spectra['d_flux_norm'][kd], 2)
+            poly = chebval(self.spectra['wave'][kd], coeffs)
+            self.spectra['d_flux_norm'][kd] = self.spectra['d_flux_norm'][kd]/\
+                poly
+            self.spectra['unc_norm'][kd] = self.spectra['unc_norm'][kd]/poly
 
-            coeffs = chebfit(self.spectra['wave'][k],
-                             self.spectra['m_flux_norm'][k], 2)
-            poly = chebval(self.spectra['wave'][k], coeffs)
-            self.spectra['m_flux_norm'][k] = self.spectra['m_flux_norm'][k]/poly
+            coeffs = chebfit(self.spectra['wave'][km],
+                             self.spectra['m_flux_norm'][km], 2)
+            poly = chebval(self.spectra['wave'][km], coeffs)
+            self.spectra['m_flux_norm'][km] = self.spectra['m_flux_norm'][km]/\
+                poly
 
     def abundance_correct(self, s07=False, b14=False, m11=True):
         """
