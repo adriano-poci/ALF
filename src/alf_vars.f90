@@ -47,7 +47,7 @@ MODULE ALF_VARS
   !1 = double power-law
   !2 = power-law + cutoff
   !3 = double power-law + cutoff
-  INTEGER :: imf_type=1
+  INTEGER :: imf_type=0
 
   !are the data in the original observed frame?
   INTEGER :: observed_frame=1

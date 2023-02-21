@@ -29,6 +29,9 @@ v1.3:   Clean old queue files before writing new ones. 7 September 2022
 v1.4:   Added aperture fitting and `sed` replacements scripts to `alfWrite`;
         Generate local copies of executables for each galaxy. 28 September 2022
 v1.5:   Added `priors` kwarg to `alfWrite`. 13 October 2022
+v1.6:   Break the spectra scripts into smaller chunks. 26 October 2022
+v1.7:   Fixed bug in `getM2L` by using `RZ.shiftFnu` to compute the model
+            magnitude as well. 6 December 2022
 """
 from __future__ import print_function, division
 
@@ -89,14 +92,16 @@ CTS = Constants()
 # ------------------------------------------------------------------------------
 
 def prepSpec(galaxy, SN, instrument='MUSE', wRange=[4000, 10000], full=True,
-    smask=[]):
+    smask=[], dcName=''):
 
     if not full:  # Clip the spectral data if required
         tEnd = 'trunc'
     else:
         tEnd = 'full'
+    
+    gDir = curdir/f"{galaxy}{dcName}"
 
-    VO = Load.lzma(curdir/galaxy/f"voronoi_SN{SN:02d}_{tEnd}.xz")
+    VO = Load.lzma(gDir/f"voronoi_SN{SN:02d}_{tEnd}.xz")
     tPix = VO['lVal']+np.arange(VO['lN'])*VO['lDel']
     wRange = np.clip(wRange, VO['lVal'], np.max(tPix))
     # wRange = np.insert(wRange, 1,
@@ -170,7 +175,9 @@ def alfRead():
 # ------------------------------------------------------------------------------
 
 def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
-    priors=True):
+    priors=True, dcName=''):
+
+    gDir = curdir/f"{galaxy}{dcName}"
 
     hours = np.ceil(hours).astype(int)
     hours = np.min((hours, qProps['timeMax']))
@@ -184,11 +191,12 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
         if 'cosma' in qProps['queue']:
             timeStr = f"0-{hours:d}:00:00"
 
-    nScripts = np.ceil(nbins/500).astype(int)
+    nSteps = 330
+    nScripts = np.ceil(nbins/nSteps).astype(int)
 
     remain = nbins
 
-    for fil in (curdir/galaxy).glob('alf*.qsys'):
+    for fil in gDir.glob('alf*.qsys'):
         fil.unlink(missing_ok=False)
 
     for ss in range(nScripts):
@@ -197,17 +205,18 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
         sStr = ''
         sStr += u'#!/bin/bash -l\n'
 
-        add = 500*ss
-        top = 500
-        if remain-500 < 0:
+        add = nSteps*ss
+        top = nSteps
+        if remain-nSteps < 0:
             top = copy(remain)
-        remain -= 500
+        remain -= nSteps
 
         if 'owner' in qProps.keys():
             sStr += f"#SBATCH -A {str(qProps['owner'])}\n"
         if 'queue' in qProps.keys():
             sStr += f"#SBATCH -p {str(qProps['queue'])}\n"
         sStr += f'#SBATCH --job-name="alf_{galaxy}_SN{SN:02d}"\n'
+        sStr += f'#SBATCH -D "{str(gDir)}"\n'
         sStr += f"#SBATCH --time={timeStr}\n"
         sStr += u'#SBATCH --ntasks=1\n'
         # sStr += u'#SBATCH -N 1\n'
@@ -216,8 +225,10 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
         sStr += f'#SBATCH --array=0-{top}\n'
         sStr += u'#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL\n'
         sStr += u'#SBATCH --mail-user=adriano.poci@durham.ac.uk\n'
-        sStr += f'#SBATCH -o {galaxy}/out.log # Standard out to galaxy\n'
-        sStr += f'#SBATCH -e {galaxy}/out.log # Standard err to galaxy\n'
+        sStr += f'#SBATCH -o "{str(gDir)}/out.log" '\
+            u'# Standard out to galaxy\n'
+        sStr += f'#SBATCH -e "{str(gDir)}/out.log" '\
+            u'# Standard err to galaxy\n'
         sStr += f'#SBATCH --open-mode=append\n\n'
 
         sStr += u'source ${HOME}/.bashrc\n\n'
@@ -231,10 +242,10 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
         else:
             sStr += u'declare idx=$(printf %04d ${SLURM_ARRAY_TASK_ID})\n'
         sStr += u'mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} '\
-            f'./{galaxy}/bin/alf.exe "{galaxy}_SN{SN:02d}_${{idx}}" 2>&1 | '\
-            f'tee -a "{galaxy}/out_${{idx}}.log"\n'
+            f'./{galaxy}{dcName}/bin/alf.exe "{galaxy}_SN{SN:02d}_${{idx}}" '\
+            f'2>&1 | tee -a "{galaxy}{dcName}/out_${{idx}}.log"\n'
 
-        sf = io.open(curdir/galaxy/f"alf{ss:02d}.qsys", 'w+', newline='')
+        sf = io.open(gDir/f"alf{ss:02d}.qsys", 'w+', newline='')
         sf.write(sStr)
         sf.flush()
         sf.close()
@@ -249,6 +260,7 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
     if 'queue' in qProps.keys():
         sStr += f"#SBATCH -p {str(qProps['queue'])}\n"
     sStr += f'#SBATCH --job-name="alf_{galaxy}_SN{SN:02d}_aperture"\n'
+    sStr += f'#SBATCH -D "{str(gDir)}"\n'
     sStr += f"#SBATCH --time={timeStr}\n"
     sStr += u'#SBATCH --ntasks=1\n'
     # sStr += u'#SBATCH -N 1\n'
@@ -256,8 +268,10 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
     sStr += u'#SBATCH --mem-per-cpu=3000\n'
     sStr += u'#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL\n'
     sStr += u'#SBATCH --mail-user=adriano.poci@durham.ac.uk\n'
-    sStr += f'#SBATCH -o {galaxy}/out.log # Standard out to galaxy\n'
-    sStr += f'#SBATCH -e {galaxy}/out.log # Standard err to galaxy\n'
+    sStr += f'#SBATCH -o "{str(gDir)}/out.log" '\
+        u'# Standard out to galaxy\n'
+    sStr += f'#SBATCH -e "{str(gDir)}/out.log" '\
+        u'# Standard err to galaxy\n'
     sStr += f'#SBATCH --open-mode=append\n\n'
 
     sStr += u'source ${HOME}/.bashrc\n\n'
@@ -276,20 +290,21 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
     sStr += u'# Run aperture fit\n'
     sStr += u'mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} '\
         f'./bin/alf.exe "{galaxy}_SN{SN:02d}_aperture" 2>&1 | tee -a '\
-        f'"{galaxy}/out_aperture.log"\n\n'
+        f'"{galaxy}{dcName}/out_aperture.log"\n\n'
     sStr += '# Read in the aperture fit\n'
     sStr += u"Ipy='ipython --pylab --pprint --autoindent'\n"
     sStr += f"galax='{galaxy}'\n"
     sStr += f"SN={SN:d}\n"
     sStr += u'pythonOutput=$($Ipy alf_aperRead.py -- -g "$galax" -sn "$SN")\n'
-    sStr += f'echo "$pythonOutput" 2>&1 | tee -a "{galaxy}/out_aperture.log"\n'
+    sStr += f'echo "$pythonOutput" 2>&1 | tee -a '\
+        f'"{galaxy}{dcName}/out_aperture.log"\n'
     if priors:
         sStr += u'# Temporary variable for the last line of the Python output\n'
         sStr += u'readarray -t tmp <<< $(echo "$pythonOutput" | tail -n1)\n'
         sStr += u'# Transform into bash array\n'
         sStr += u"IFS=',' read -ra aperKin <<< "'"$tmp"\n'
-        sStr += u'echo "${aperKin[*]}" 2>&1 | tee -a "'\
-            f'{galaxy}/out_aperture.log"\n\n'
+        sStr += u'echo "${aperKin[*]}" 2>&1 | tee -a '\
+            f'"{galaxy}{dcName}/out_aperture.log"\n\n'
         sStr += u'### Compile modified velocity priors\n'
         sStr += u'cd src\n'
         sStr += u'cp alf.f90.perm alf.f90\n'
@@ -302,20 +317,21 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
         sStr += u'sed -i "s/prhi%velz = 999./prhi%velz = ${newVHi}/g" alf.f90\n'
         sStr += u'# Replace the placeholder value in `sed` script\n'
         sStr += u'sed -i "s/velz = 999/velz = ${aperKin[0]}/g" '\
-            '${ALF_HOME}${galax}/alf_replace.sed\n'
+            f"${{ALF_HOME}}{galaxy}{dcName}/alf_replace.sed\n"
         sStr += u'# Run `sed` using the multi-line script\n'
         sStr += u'# Pipe to temporary file\n'
-        sStr += u'sed -n -f ${ALF_HOME}${galax}/alf_replace.sed alf.f90 >> '\
-            'alf_tmp.f90\n'
+        sStr += f"sed -n -f ${{ALF_HOME}}{galaxy}{dcName}/alf_replace.sed "\
+            'alf.f90 >> alf_tmp.f90\n'
         sStr += u'mv alf_tmp.f90 alf.f90\n\n'
         sStr += u'make all && make clean\n\n'
     sStr += u'# Move executables to local directory\n'
     sStr += u'cd ${ALF_HOME}\n'
-    sStr += u'mkdir ${galax}/bin\n'
-    sStr += u'cp bin/* ${galax}/bin/\n'
-    sStr += u'find "$galax" -name "alf*.qsys" -type f -exec sbatch {} \;\n'
+    sStr += f"mkdir {galaxy}{dcName}/bin\n"
+    sStr += f"cp bin/* {galaxy}{dcName}/bin/\n"
+    sStr += f'find "{galaxy}{dcName}" -name "alf*.qsys" -type f -exec sbatch '\
+        u'{} \;\n'
 
-    sf = io.open(curdir/galaxy/'startAlf.qsys', 'w+', newline='')
+    sf = io.open(gDir/'startAlf.qsys', 'w+', newline='')
     sf.write(sStr)
     sf.flush()
     sf.close()
@@ -329,7 +345,7 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
     sStr += f'{ws: <12s}}}\n'
     sStr += u'}\n'
     sStr += u'p;\n'
-    sf = io.open(curdir/galaxy/'alf_replace.sed', 'w+', newline='')
+    sf = io.open(gDir/'alf_replace.sed', 'w+', newline='')
     sf.write(sStr)
     sf.flush()
     sf.close()
@@ -447,10 +463,6 @@ def getMass(mto, imf1, imf2, imfTop):
 def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',
         photFilt='WFPC2.F814W', **kwargs):
 
-    if not (curdir/'results'/f"{mfn}.bestspec2").is_file():
-        # Generate model on longer wavelength range
-        sp.check_call([f"{curdir}/bin/spec_from_sum.exe", mfn])
-
     # Variables
     lsun   = 3.839e33 # Solar luminosity in erg/s
     clight = 2.9979e10 # Speed of light (cm/s)
@@ -476,30 +488,32 @@ def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',
     filter = svo.Filter(photFilt)
     fWave = filter.wave.to('angstrom').value.flatten()
     fTrans = filter.throughput.flatten()
+    # Up-sample filter response
+    nfWave = np.linspace(mWave.min(), mWave.max(), 9000)
+    ups = interp1d(fWave, fTrans, fill_value='extrapolate')
+    nfTrans = ups(nfWave)
 
-    # lint = interp1d(mWave, mSpec, fill_value='extrapolate')
-    # baseTemplate = lint(fWave)
-    baseTemplate = spectres(fWave, mWave, mSpec)
+    lint = interp1d(mWave, mSpec, fill_value='extrapolate')
+    baseTemplate = lint(nfWave)
+    # baseTemplate = spectres(fWave, mWave, mSpec)
     # linearly re-bin model spectrum to filter-curve wavelengths,
     # while conserving flux
 
-    physSpec = baseTemplate * lsun/1e6 * fWave**2/clight/1e8/4./np.pi/\
+    physSpec = baseTemplate * lsun/1e6 * nfWave**2/clight/1e8/4./np.pi/\
         pc2cm**2
 
-    mag = np.trapz(physSpec*fTrans/fWave, x=fWave)
+    tempMag = RZ.shiftFnu(nfWave, physSpec, photFilt=photFilt, **kwargs)
 
-    if mag <= 0.0:
+    if tempMag <= 0.0:
         return 0.0
 
     else:
-
-        mag = -2.5*np.log10(mag)-48.60
         # Read in solar spectrum and generate mag sun from filter curve
         swave, snu = map(lambda x: x.value, Read.SolarSpec(dDir/\
             'sun_reference_stis_002.fits'))
         solarMag = RZ.shiftFnu(swave, snu, photFilt=photFilt, **kwargs)
 
-        mass2light = mass / 10.0**(2./5. * (solarMag-mag))
+        mass2light = mass / 10.0**(2./5. * (solarMag-tempMag))
 
         if mass2light > 100.0:
             mass2light = 0.0

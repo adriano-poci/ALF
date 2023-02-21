@@ -33,6 +33,11 @@ v1.4:   Store aperture spectrum and errors with Voronoi binning. 27 September
 v1.5:   Added `contours` kwarg to `afh` to plot flux contours over derived maps.
             29 September 2022
 v1.6:   Added `priors` kwarg to `aap`. 13 October 2022
+v1.7:   Updated call to `map2img` which now always returns multiple objects.
+            12 December 2022
+v1.8:   Added extra 100km s^{-1} model smoothening internal to alf in `afh`. 22
+            December 2022
+v1.9:   Use new `polyPatch`. 1 February 2023
 """
 from __future__ import print_function, division
 
@@ -99,17 +104,19 @@ def _mpCount( j, gSpec, mpCount ):
 
 # ------------------------------------------------------------------------------
 
-def vorBinNumber(galaxy, SN, full=False, voro=None):
+def vorBinNumber(galaxy, SN, full=False, voro=None, dcName=''):
     SN = int(SN)
 
     if not full:
         tEnd = 'trunc'
     else:
         tEnd = 'full'
+    
+    gDir = curdir/f"{galaxy}{dcName}"
 
-    pifs = curdir/galaxy/f"pixels_SN{SN:d}.xz"
-    vofs = curdir/galaxy/f"voronoi_SN{SN:02d}_{tEnd}.xz"
-    sefs = curdir/galaxy/f"selection_SN{SN:02d}_{tEnd}.xz"
+    pifs = gDir/f"pixels_SN{SN:d}.xz"
+    vofs = gDir/f"voronoi_SN{SN:02d}_{tEnd}.xz"
+    sefs = gDir/f"selection_SN{SN:02d}_{tEnd}.xz"
 
     if isinstance(voro, type(None)):
         VB = au.Load.lzma(vofs)
@@ -122,9 +129,9 @@ def vorBinNumber(galaxy, SN, full=False, voro=None):
     ypix = np.compress(goods, ypix)
     binNum = VB['binNum']
 
-    BNImg = POT.map2img(xpix, ypix, binNum, pixSize=pixs)
+    BNImg, _, _, _ = POT.map2img(xpix, ypix, binNum, pixSize=pixs)
 
-    pf.writeto(curdir/galaxy/f"binnumber_SN{SN:02d}_{tEnd}.fits",
+    pf.writeto(gDir/f"binnumber_SN{SN:02d}_{tEnd}.fits",
                BNImg.filled(np.nan), overwrite=True)
 
 # ------------------------------------------------------------------------------
@@ -169,7 +176,8 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     """
     targetSN = int(targetSN)
 
-    (curdir/galaxy).mkdir(parents=True, exist_ok=True)
+    gDir = curdir/f"{galaxy}{dcName}"
+    gDir.mkdir(parents=True, exist_ok=True)
     # (curdir/'results'/galaxy).mkdir(parents=True, exist_ok=True)
 
     # source code configuration
@@ -184,7 +192,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         'ndat', 'nparsimp', 'nindx', 'nfil',  'nhot', 'imflo', 'imfhi',
         'krpa_imf1', 'krpa_imf2', 'krpa_imf3']
     CNF = dict()
-    with open(curdir/'src'/'alf.f90', 'r') as af:
+    with open(curdir/'src'/'alf.f90.perm', 'r') as af:
         af90 = af.read()
     with open(curdir/'src'/'alf_vars.f90', 'r') as af:
         vf90 = af.read()
@@ -199,8 +207,8 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
             val = val[0].strip().split('=')[-1].split('!')[0].strip()
             if key in CNF.keys():
                 assert val == CNF[key], f"Inconsistent settings for {key}:\n"\
-                    f"{'': <4s}alf.f90: {CNF[key]}\n"\
-                    f"{'': <4s}alf_vars.f90: {val}"
+                    f"{'': <4s}alf: {CNF[key]}\n"\
+                    f"{'': <4s}alf_vars: {val}"
             else:
                 CNF[key] = val
 
@@ -212,9 +220,9 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         tEnd = 'full'
     CNF['smax'] = smax
     CNF['full'] = full
-    au.Write.lzma(curdir/galaxy/'config.xz', CNF)
+    au.Write.lzma(gDir/'config.xz', CNF)
 
-    kinF = curdir/galaxy/f"AFH_SN{targetSN:02d}_{tEnd}.xz"
+    kinF = gDir/f"AFH_SN{targetSN:02d}_{tEnd}.xz"
     if isinstance(kfn, type(None)):
         kfn = plp.Path(f"AFH_SN{targetSN:02d}_{tEnd}.xz")
     else:
@@ -222,20 +230,22 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
 
     # Sort out file existence
     pixels, voronoi, selection, srn, kines, cubeCube = [False]*6
-    pifs = curdir/galaxy/f"pixels_SN{targetSN:02d}.xz"
-    vofs = curdir/galaxy/f"voronoi_SN{targetSN:02d}_{tEnd}.xz"
-    sefs = curdir/galaxy/f"selection_SN{targetSN:02d}_{tEnd}.xz"
-    snfs = curdir/galaxy/f"SNR_{tEnd}.xz"
+    pifs = gDir/f"pixels_SN{targetSN:02d}.xz"
+    vofs = gDir/f"voronoi_SN{targetSN:02d}_{tEnd}.xz"
+    sefs = gDir/f"selection_SN{targetSN:02d}_{tEnd}.xz"
+    snfs = gDir/f"SNR_{tEnd}.xz"
     gfs = curdir.parent/'muse'/'obsData'/f"{galaxy}.xz"
     jfn = dDir/'galaxy-props'/f"{galaxy}.json"
 
     if dcName != '':
-        dcName = f"*{dcName}*"
+        dcgName = f"*{dcName}*"
+    else:
+        dcgName = '*'
     try:
-        cubeCube = next(kPath.glob(f"*{galaxy}{dcName}_DATACUBE*.fits"))
+        cubeCube = next(kPath.glob(f"*{galaxy}{dcgName}_DATACUBE*.fits"))
     except StopIteration:
         try:
-            cubeCube = next(kPath.glob(f"*{galaxy}{dcName}_DATACUBE*.fz"))
+            cubeCube = next(kPath.glob(f"*{galaxy}{dcgName}_DATACUBE*.fz"))
         except StopIteration:
             cubeCube = None
     if pifs.exists():
@@ -274,7 +284,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     flush=True)
 
 
-    kfPath = curdir/galaxy/kfn
+    kfPath = gDir/kfn
     if kfPath.exists():
         output = au.Load.lzma(kfPath)
     else:
@@ -306,7 +316,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     fluxii = np.ma.sum(hData, axis=0)
     print('Done.\n\n')
 
-    pf.writeto(curdir/galaxy/f"collapsed.fits", fluxii.filled(np.nan),
+    pf.writeto(gDir/f"collapsed.fits", fluxii.filled(np.nan),
         overwrite=True)
     fluxi = fluxii.ravel()
 
@@ -594,6 +604,15 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
                 [415, 387, 10],
             ]
             ellips = []
+        elif 'SNL1' in galaxy:
+            # GIMP gives reversed y-axis
+            points = []
+            ellips = [
+                [172, 203, 6, 4, -10.],
+                [165, 193, 5, 4, -10.],
+                [180, 212, 16, 1.3, -20.],
+                # [177, 218, 8, 2, -20.],
+            ]
         elif 'SNL2' in galaxy:
             # GIMP gives reversed y-axis
             points = [
@@ -652,21 +671,21 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
 
         pfn = dDir.parent/'muse'/'obsData'/f"{galaxy}-poly-obs.xz"
         if pfn.is_file():
-            aPoly, edges = au.Load.lzma(pfn)
-            aPoly, edges, pPatch = POT.polyPatch(POLYGON=aPoly,
-                edge_points=edges, Xpo=xOrgi, Ypo=yOrgi, ec=POT.brown,
-                linestyle='--', fill=False, zorder=0, lw=0.75)
+            aShape = au.Load.lzma(pfn)
+            aShape, pPatch = POT.polyPatch(POLYGON=aShape, Xpo=xp, Ypo=yp,
+                salpha=0.5, ec=POT.brown, linestyle='--', fill=False, zorder=0,
+                lw=0.75)
         else:
-            aPoly, edges, pPatch = POT.polyPatch(Xpo=xOrgi, Ypo=yOrgi,
+            aShape, pPatch = POT.polyPatch(Xpo=xp, Ypo=yp, salpha=0.5,
                 ec=POT.brown, linestyle='--', fill=False, zorder=0, lw=0.75)
-            au.Write.lzma(pfn, [aPoly, edges])
+            au.Write.lzma(pfn, aShape)
 
         plt.clf()
         dpp(xOrg, yOrg, np.log10(flux), pixelsize=1.0, cmap='prism')
         plt.grid(which='both', axis='both', zorder=10, color='k',
             linewidth=0.4, ls='-')
         plt.gca().set_aspect('equal')
-        plt.savefig(curdir/galaxy/'pixelMask')
+        plt.savefig(gDir/'pixelMask')
 
         print(f"{'': <4s}Found (xc, yc) = ({xc:3.1f},{yc:3.1f})")
 
@@ -679,7 +698,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         dpp(xp, yp, np.log10(flux), pixelsize=pixs, cmap='prism')
         plt.gca().add_patch(copy(pPatch))
         plt.gca().set_aspect('equal')
-        plt.savefig(curdir/galaxy/'pixels')
+        plt.savefig(gDir/'pixels')
         plt.close('all')
         print('Done.', flush=True)
 
@@ -786,12 +805,12 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         dpp(xp, yp, np.ma.sum(gspecs, axis=0), cmap='gist_heat',
             pixelsize=pixs, vmin=1e-1)
         plt.gca().set_aspect('equal')
-        plt.savefig(curdir/galaxy/'flux')
+        plt.savefig(gDir/'flux')
         plt.xlim([xp.min()/5., xp.max()/5.])
         plt.ylim([yp.min()/5., yp.max()/5.])
         plt.axvline(0., lw=0.25)
         plt.axhline(0., lw=0.25)
-        plt.savefig(curdir/galaxy/'fluxCen')
+        plt.savefig(gDir/'fluxCen')
         plt.close('all')
         print('Done.', flush=True)
 
@@ -805,7 +824,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
                 binNum, xpin, ypin, xbar, ybar, endSN, nPixels, scale = v2db(
                     xp, yp, gMed, sMed, targetSN, plot=True, quiet=quick,
                     pixelsize=pixs)
-                plt.savefig(curdir/galaxy/f"v2db_SN{targetSN:02d}")
+                plt.savefig(gDir/f"v2db_SN{targetSN:02d}")
                 plt.close('all')
                 plt.clf()
                 VB = dict()
@@ -861,7 +880,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
                     np.take(stats, apIdx, axis=1)**2), axis=1)))
                 au.Write.lzma(vofs, VB, preset=6)
 
-                vorBinNumber(galaxy, targetSN, full, voro=VB)
+                vorBinNumber(galaxy, targetSN, full, voro=VB, dcName=dcName)
 
                 print('Done.', flush=True)
             except:
@@ -888,7 +907,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     for pair in smask:
         ax.axvspan(pair[0], pair[1], alpha=0.5, facecolor='r', edgecolor=None,
             fill=True)
-    fig.savefig(curdir/galaxy/'apertureSpecMask.pdf')
+    fig.savefig(gDir/'apertureSpecMask.pdf')
 
 
     output['lVal'] = lmin
@@ -902,7 +921,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         output['nPixels'] = nPixels
         # output['scale'] = scale
     try:
-        au.Write.lzma(curdir/galaxy/kfn, output)
+        au.Write.lzma(gDir/kfn, output)
     except:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         traceback.print_exc()
@@ -913,27 +932,31 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     del gspecs, stats
 
     au.prepSpec(galaxy, targetSN, full=full, instrument=instrument,
-        wRange=[smin, smax], smask=smask)
+        wRange=[smin, smax], smask=smask, dcName=dcName)
 
-    au.alfWrite(galaxy, targetSN, nbins, qProps=qProps, priors=priors)
+    au.alfWrite(galaxy, targetSN, nbins, qProps=qProps, priors=priors,
+        dcName=dcName)
 
 # ------------------------------------------------------------------------------
 
-def _mpSpecFromSum(aper, galaxy, SN):
+def _mpSpecFromSum(aper, galaxy, SN, dcName=''):
     mfn = f"{galaxy}_SN{SN:02d}_{aper:04d}"
-    if not (curdir/'results'/f"{mfn}.bestspec2").is_file():
+    if not (curdir/'results'/f"{mfn}.bestspec2").is_file() and \
+        (curdir/'results'/f"{mfn}.bestspec").is_file():
         # Generate model on longer wavelength range
-        sp.check_call([f"{curdir}/{galaxy}/bin/spec_from_sum.exe", mfn])
+        sp.check_call([f"{str(curdir)}/{galaxy}{dcName}/bin/spec_from_sum.exe",
+            mfn])
 
 # ------------------------------------------------------------------------------
 
-def makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[]):
+def makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[],
+    dcName=''):
     if not full: # Clip the spectral data if required
         tEnd = 'trunc'
     else:
         tEnd = 'full'
 
-    vofs = curdir/galaxy/f"voronoi_SN{SN:02d}_{tEnd}.xz"
+    vofs = curdir/f"{galaxy}{dcName}"/f"voronoi_SN{SN:02d}_{tEnd}.xz"
     VO = au.Load.lzma(vofs)
     nSpat = VO['xbin'].size
 
@@ -942,12 +965,11 @@ def makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[]):
     else:
         nSpat = len(apers)
 
-
     if NMP > 1:
         print(f"{'': <8s}Running {NMP:d} processes")
         with mp.Pool(processes=NMP) as pool:
             it = pool.imap_unordered(partial(_mpSpecFromSum, galaxy=galaxy,
-                SN=SN), apers)
+                SN=SN, dcName=dcName), apers)
             for j in tqdm(it, desc='specSum', total=nSpat):
                 pass
 
@@ -955,7 +977,7 @@ def makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[]):
 
 def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     pplots=['kin', 'err', 'age', 'metal', 'imf', 'ml', 'abund'], band='F814W',
-    NMP=15, contours=False, **kwargs):
+    NMP=15, contours=False, dcName='', **kwargs):
     """_summary_
 
     Args:
@@ -967,7 +989,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         pplots (list, optional): _description_. Defaults to ['kin', 'err', 'age', 'metal', 'imf', 'ml', 'abund'].
         band (str, optional): _description_. Defaults to 'F814W'.
         NMP (int, optional): _description_. Defaults to 15.
-
+        contours (bool, optional): toggles whether to show isophotal contours
+            on output figures
+        dcName (str, optional): a suffix to add to the model directory
     Raises:
         RuntimeError: _description_
     """    
@@ -981,7 +1005,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     else:
         tEnd = 'full'
 
-    mDir = curdir/galaxy
+    mDir = curdir/f"{galaxy}{dcName}"
 
     pifs = mDir/f"pixels_SN{SN:02d}.xz"
     vofs = mDir/f"voronoi_SN{SN:02d}_{tEnd}.xz"
@@ -992,24 +1016,30 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     sffs = mDir/f"pops_SN{SN:02d}_{tEnd}.xz"
     gfs = curdir.parent/'muse'/'obsData'/f"{galaxy}.xz"
     jfn = dDir/'galaxy-props'/f"{galaxy}.json"
+    cfn = mDir/'config.xz'
     xpix, ypix, sele, pixs = au.Load.lzma(pifs)
     VO = au.Load.lzma(vofs)
     saur, goods = au.Load.lzma(sefs)
+    CFG = au.Load.lzma(cfn)
+    interest = ['fit_type', 'imf_type', 'fit_hermite', 'fit_two_ages']
+    print('Run Options:\n'+'\n'.join([f"{'': <4s}{key: >20s}: {CFG[key]}" for
+        key in interest]))
 
     binNum = VO['binNum']
     nSpat = VO['xbin'].size
 
     gal = au.Load.lzma(gfs)
     if 'z' in gal.keys():
-        RZ = Redshift(redshift=gal['z'])
+        zShift = gal['z']
+        RZ = Redshift(redshift=zShift)
     elif 'distance' in gal.keys():
-        RZ = Redshift(distance=gal['distance'])
+        distance = gal['distance']
+        RZ = Redshift(distance=distance)
     else:
         raise RuntimeError('No distance information.')
-    print(f"z: {RZ.zShift:4.3}")
-    print(f"distance: {RZ.distance:4.3f} Mpc")
+    print(RZ)
 
-    print(f"Looking for {kfs} and {sffs}...")
+    print(f"Looking for \n{kfs} and \n{sffs}...")
     if (not kfs.is_file()) or (not sffs.is_file()):
         print(f"Looking for {afs}...")
         if not afs.is_file():
@@ -1096,6 +1126,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                     ALF[f"{aper:04d}"].results[f"IMF{ki+1}"][mIdx]
                 SFH['IMF'][f"{ki+1}e"][aper] = \
                     ALF[f"{aper:04d}"].results[f"IMF{ki+1}"][eIdx]
+            if int(CFG['imf_type']) == 0:
+                SFH['IMF']['2'][aper] = SFH['IMF']['1'][aper]
+                SFH['IMF']['2e'][aper] = SFH['IMF']['1e'][aper]
             for ak in aKeys:
                 SFH['abundances'][f"{ak}"][aper] = \
                     ALF[f"{aper:04d}"].results[ak][mIdx]
@@ -1115,12 +1148,17 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 10.0**(ALF[f"{aper:04d}"].results['logfy'][eIdx])
             SFH['zH'][aper] = ALF[f"{aper:04d}"].results['zH'][mIdx]
             SFH['zHe'][aper] = ALF[f"{aper:04d}"].results['zH'][eIdx]
+            # MLa = au.getM2L('solar',
+            #     ALF[f"{aper:04d}"].results['logage'][mIdx], SFH['zH'][aper],
+            #     SFH['IMF']['1'][aper], SFH['IMF']['2'][aper], 2.3, RZ=RZ,
+            #     band=band, **kwargs)
             MLa = au.getM2L(f"{galaxy}_SN{SN:02d}_{aper:04d}",
                 ALF[f"{aper:04d}"].results['logage'][mIdx], SFH['zH'][aper],
                 SFH['IMF']['1'][aper], SFH['IMF']['2'][aper], 2.3, RZ=RZ,
                 band=band, **kwargs)
             SFH['ML'][band][aper] = MLa
 
+        KIN['2'] = np.sqrt(KIN['2']**2 + 100.**2) # add model broadening
         au.Write.lzma(kfs, KIN)
         au.Write.lzma(sffs, SFH)
         su.copy2(kfs,
@@ -1132,8 +1170,6 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
 
     gfs = curdir.parent/'muse'/'obsData'/f"{galaxy}.xz"
     gal = au.Load.lzma(gfs)
-    cfn = mDir/'config.xz'
-    CFG = au.Load.lzma(cfn)
 
     if contours:
         fluxii = pf.open(mDir/f"collapsed.fits")[0].data
@@ -1182,14 +1218,14 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     xbix, ybix = GEO.rotate2D(xpix, ypix, PA)
     pfn = dDir.parent/'muse'/'obsData'/f"{galaxy}-poly-rot.xz"
     if pfn.is_file():
-        aPoly, edges = au.Load.lzma(pfn)
-        aPoly, edges, pPatch = POT.polyPatch(POLYGON=aPoly, edge_points=edges,
-            Xpo=xbix, Ypo=ybix, ec=POT.brown, linestyle='--', fill=False,
-            zorder=0, lw=0.75)
+        aShape = au.Load.lzma(pfn)
+        aShape, pPatch = POT.polyPatch(POLYGON=aShape, Xpo=xbix, Ypo=ybix,
+            salpha=0.5, ec=POT.brown, linestyle='--', fill=False, zorder=0,
+            lw=0.75)
     else:
-        aPoly, edges, pPatch = POT.polyPatch(Xpo=xbix, Ypo=ybix, ec=POT.brown,
-            linestyle='--', fill=False, zorder=0, lw=0.75)
-        au.Write.lzma(pfn, [aPoly, edges])
+        aShape, pPatch = POT.polyPatch(Xpo=xbix, Ypo=ybix, salpha=0.5,
+            ec=POT.brown, linestyle='--', fill=False, zorder=0, lw=0.75)
+        au.Write.lzma(pfn, aShape)
     xmin, xmax = np.amin(xbix), np.amax(xbix)
     ymin, ymax = np.amin(ybix), np.amax(ybix)
     xLen, yLen = np.ptp(xbix), np.ptp(ybix) # unmasked pixels
@@ -1545,21 +1581,77 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             mlow=0.2, mhigh=1.0)[0], imfs)))
         xi = xiTop/xiBot
 
-        amin, amax = POT.sigClip(xi, 'IMF', clipBins=0.05)
-        fig = plt.figure(figsize=plt.figaspect(yLen/xLen))
-        ax = fig.gca()
+        i1min, i1max = POT.sigClip(IMF1, 'IMF', clipBins=0.025)
+        i2min, i2max = POT.sigClip(IMF2, 'IMF', clipBins=0.025)
+        imin = np.min((i1min, i2min))
+        imax = np.min((i1max, i2max))
+        amin, amax = POT.sigClip(xi, 'IMF', clipBins=0.025)
+        gs = gridspec.GridSpec(2, 2, hspace=0.0, wspace=0.0)
+        fig = plt.figure(figsize=plt.figaspect(yLen/xLen)*1.5)
+
+        ax = fig.add_subplot(gs[0])
+        img = dpp(xpix, ypix, IMF1[binNum], pixelsize=pixs,
+            vmin=imin, vmax=imax, angle=PA)
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+        ax.add_patch(copy(pPatch))
+        ax.set_xticklabels([])
+        lT = ax.text(1e-3, 1-1e-3, r'$x_1$', va='top', ha='left',
+            color=POT.lmagen, transform=ax.transAxes, zorder=200)
+        lT.set_path_effects(
+            [PathEffects.withStroke(linewidth=1.75, foreground='k')])
+        if contours:
+            ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
+                levels=flevels)
+
+        miText = POT.prec(pren, imin)
+        maText = POT.prec(pren, imax)
+        cax = POT.attachAxis(ax, 'right', 0.05, mid=True)
+        cb = plt.colorbar(img, cax=cax)
+        lT = cax.text(0.5, 0.5, fr"$x_i$", va='center',
+            ha='center', rotation=270, color=POT.lmagen,
+            transform=cax.transAxes)
+        lT.set_path_effects(
+            [PathEffects.withStroke(linewidth=1.5, foreground='k')])
+        cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
+            rotation=270, color='white', transform=cax.transAxes)
+        cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
+            rotation=270, color='black', transform=cax.transAxes)
+        cb.set_ticks([])
+        cax.set_zorder(100)
+
+        ax = fig.add_subplot(gs[1])
+        img = dpp(xpix, ypix, IMF2[binNum], pixelsize=pixs,
+            vmin=imin, vmax=imax, angle=PA)
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+        ax.add_patch(copy(pPatch))
+        ax.set_yticklabels([])
+        lT = ax.text(5e-2, 1-1e-3, r'$x_2$', va='top', ha='left',
+            color=POT.lmagen, transform=ax.transAxes, zorder=200)
+        lT.set_path_effects(
+            [PathEffects.withStroke(linewidth=1.75, foreground='k')])
+        if contours:
+            ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
+                levels=flevels)
+        
+        ax = fig.add_subplot(gs[2])
         img = dpp(xpix, ypix, xi[binNum], pixelsize=pixs,
             vmin=amin, vmax=amax, angle=PA)
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
         ax.add_patch(copy(pPatch))
+        lT = ax.text(1e-3, 1-1e-3, r'$\xi$', va='top', ha='left',
+            color=POT.lmagen, transform=ax.transAxes, zorder=200)
+        lT.set_path_effects(
+            [PathEffects.withStroke(linewidth=1.75, foreground='k')])
         if contours:
             ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
                 levels=flevels)
 
         miText = POT.prec(pren, amin)
         maText = POT.prec(pren, amax)
-        cax = POT.attachAxis(ax, 'right', 0.05)
+        cax = POT.attachAxis(ax, 'right', 0.05, mid=True)
         cb = plt.colorbar(img, cax=cax)
         lT = cax.text(0.5, 0.5, fr"$\xi$", va='center',
             ha='center', rotation=270, color=POT.lmagen,
@@ -1909,14 +2001,14 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
     xbix, ybix = GEO.rotate2D(xpix, ypix, PA)
     pfn = dDir.parent/'muse'/'obsData'/f"{galaxy}-poly-rot.xz"
     if pfn.is_file():
-        aPoly, edges = au.Load.lzma(pfn)
-        aPoly, edges, pPatch = POT.polyPatch(POLYGON=aPoly, edge_points=edges,
-            Xpo=xbix, Ypo=ybix, ec=POT.brown, linestyle='--', fill=False,
-            zorder=0, lw=0.75)
+        aShape = au.Load.lzma(pfn)
+        aShape, pPatch = POT.polyPatch(POLYGON=aShape, Xpo=xbix, Ypo=ybix,
+            salpha=0.5, ec=POT.brown, linestyle='--', fill=False, zorder=0,
+            lw=0.75)
     else:
-        aPoly, edges, pPatch = POT.polyPatch(Xpo=xbix, Ypo=ybix, ec=POT.brown,
-            linestyle='--', fill=False, zorder=0, lw=0.75)
-        au.Write.lzma(pfn, [aPoly, edges])
+        aShape, pPatch = POT.polyPatch(Xpo=xbix, Ypo=ybix, salpha=0.5,
+            ec=POT.brown, linestyle='--', fill=False, zorder=0, lw=0.75)
+        au.Write.lzma(pfn, aShape)
     xmin, xmax = np.amin(xbix), np.amax(xbix)
     ymin, ymax = np.amin(ybix), np.amax(ybix)
     xLen, yLen = np.ptp(xbix), np.ptp(ybix) # unmasked pixels

@@ -108,7 +108,7 @@ PROGRAM ALF
 
   !type of IMF to fit
   !0=1PL, 1=2PL, 2=1PL+cutoff, 3=2PL+cutoff, 4=non-parametric IMF
-  imf_type = 0
+  imf_type = 1
 
   !are the data in the original observed frame?
   observed_frame = 1
@@ -131,6 +131,8 @@ PROGRAM ALF
   prhi%teff   =  2.0
   prlo%teff   = -2.0
 
+  prlo%velz = 8000
+  prhi%velz = 12000
 
 
   !mass of the young component should always be sub-dominant
@@ -410,7 +412,7 @@ PROGRAM ALF
            velz = getvelz()
            IF (velz.LT.prlo%velz.OR.velz.GT.prhi%velz) THEN
               WRITE(*,*) 'cz out of prior bounds, setting to 0.0'
-              velz = 0.0
+              velz = 9328
            ENDIF
         ENDIF
         opos%velz = velz

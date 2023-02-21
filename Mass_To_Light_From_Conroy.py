@@ -9,7 +9,7 @@ import numpy as np
 import pandas
 import scipy.interpolate as si
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
+# get_ipython().run_line_magic('matplotlib', 'inline')
 
 
 def getmass(mto, imf1, imf2, imfup):
@@ -119,7 +119,7 @@ def getm2l(logage, zh, imf1, imf2, imfup):
     
     # Read in the model. 
     dir = '/Users/rmcdermid/MQ/Students/Christina/'
-    dataset = pandas.read_table(dir+'salp_model_spectrum.txt', sep=' ', header=None, skip_blank_lines=True,comment=';')
+    dataset = pandas.read_table('salp_model_spectrum.txt', sep=' ', header=None, skip_blank_lines=True,comment=';')
     lams = dataset[0].values
     spec = dataset[1].values.astype('float')
 
@@ -141,10 +141,10 @@ def getm2l(logage, zh, imf1, imf2, imfup):
     print('Mass=',mass,'Msun')
 
     # Read in the filter file from ALF. A few curves are included, but I just take the r-band one
-    dataset = pandas.read_table(dir+'filters.dat', delim_whitespace=True, header=None, skip_blank_lines=True,comment=';')
+    dataset = pandas.read_table('infiles/filters.dat', delim_whitespace=True, header=None, skip_blank_lines=True,comment=';')
     lamf = dataset[0].values
     filters = dataset[1].values.astype('float')
-    
+
     # Convert the log model to linear lambda via simple interpolation
     interp2=si.interp1d(np.exp(lams), spec, fill_value='extrapolate')
     lin_base_template=interp2(lamf)
@@ -154,9 +154,13 @@ def getm2l(logage, zh, imf1, imf2, imfup):
     # and should be put into some kind of apparent magnitude form (hence the 4piR^2 term), but not sure.
     # Either way, it works....
     aspec  = lin_base_template*lsun/1e6*lamf**2/clight/1.e8/4./mypi/pc2cm**2
+    
+    plt.clf(); plt.plot(lamf[np.where((lamf<7250)&(lamf>5400))[0]], aspec[np.where((lamf<7250)&(lamf>5400))[0]]); plt.savefig('aspec')
 
     # Integrate the spectrum under the filter curve using trapezoid method.
     mag = np.trapz(aspec*filters/lamf,x=lamf)
+    
+    print(mag)
 
     # This should bne the AB mag prediction, comparable to other models
     print('mag(r, AB):',-2.5*np.log10(mag)-48.60)
@@ -170,7 +174,7 @@ def getm2l(logage, zh, imf1, imf2, imfup):
 
     if (m2l > 100.):
         m2l = 0.
-                        
+
     return m2l
 
 
