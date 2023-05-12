@@ -38,6 +38,8 @@ v1.7:   Updated call to `map2img` which now always returns multiple objects.
 v1.8:   Added extra 100km s^{-1} model smoothening internal to alf in `afh`. 22
             December 2022
 v1.9:   Use new `polyPatch`. 1 February 2023
+v1.10:  Pull `smin` and `smax` from `kwargs` if provided;
+        Use `dcName` for polygon patch files. 21 March 2023
 """
 from __future__ import print_function, division
 
@@ -213,10 +215,10 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
                 CNF[key] = val
 
     if not full:  # Clip the spectral data if required
-        smax = 7300.
+        smax = kwargs.get('smax', 7300.)
         tEnd = 'trunc'
     else:
-        smax = 9000.  # Do star and SSP on the same range
+        smax = kwargs.get('smax', 9000.)  # Do star and SSP on the same range
         tEnd = 'full'
     CNF['smax'] = smax
     CNF['full'] = full
@@ -328,8 +330,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         RZ = Redshift(distance=gal['distance'])
     else:
         raise RuntimeError('No distance information.')
-    print(f"z: {RZ.zShift:4.3}")
-    print(f"distance: {RZ.distance:4.3f} Mpc")
+    print(RZ)
     vSys = RZ.toVSys()
 
     if 'mask' in jgal.keys():
@@ -342,7 +343,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
 
     lambA = dhdr['CRVAL3']+np.arange(nL)*dhdr['CD3_3']
     # wavelength in Angstrom
-    smin = np.max([np.min(lambA), 4000.])
+    smin = kwargs.get('smin', np.max([np.min(lambA), 4000.]))
 
     saur = np.where((lambA >= smin) & (lambA <= smax))[0]
     lPix = lambA[saur]
@@ -604,7 +605,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
                 [415, 387, 10],
             ]
             ellips = []
-        elif 'SNL1' in galaxy:
+        elif 'SNL1' in galaxy and dcName == '':
             # GIMP gives reversed y-axis
             points = []
             ellips = [
@@ -669,7 +670,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         xp = (xOrg-xc)*pixs
         yp = (yOrg-yc)*pixs
 
-        pfn = dDir.parent/'muse'/'obsData'/f"{galaxy}-poly-obs.xz"
+        pfn = dDir.parent/'muse'/'obsData'/f"{galaxy}{dcName}-poly-obs.xz"
         if pfn.is_file():
             aShape = au.Load.lzma(pfn)
             aShape, pPatch = POT.polyPatch(POLYGON=aShape, Xpo=xp, Ypo=yp,
@@ -751,6 +752,11 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         gspecs = np.take(gspecs, saur, axis=0)
         stats = np.take(stats, saur, axis=0)
 
+        notch = [576, 605] # [nm], maximum range for both NFM and WFM
+        nww = np.where((lPix < notch[0]*10) | (lPix > notch[1]*10))[0]
+        # the notch contributes NaNs to every spectrum, but isn't of
+        #   concern
+
         if selection:
             print('Reading selections...')
             _saur, goods = au.Load.lzma(sefs)
@@ -758,10 +764,6 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         else:
             print('Generating selection...')
 
-            notch = [576, 605] # [nm], maximum range for both NFM and WFM
-            nww = np.where((lPix < notch[0]*10) | (lPix > notch[1]*10))[0]
-            # the notch contributes NaNs to every spectrum, but isn't of
-            #   concern
             nNaN = np.count_nonzero(np.isnan(gspecs[nww, :].data), axis=0)
             nNeg = np.count_nonzero(gspecs < 0, axis=0)
             if srn:
@@ -1216,7 +1218,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     KIN['1'] -= vSys
     # Plots
     xbix, ybix = GEO.rotate2D(xpix, ypix, PA)
-    pfn = dDir.parent/'muse'/'obsData'/f"{galaxy}-poly-rot.xz"
+    pfn = dDir.parent/'muse'/'obsData'/f"{galaxy}{dcName}-poly-rot.xz"
     if pfn.is_file():
         aShape = au.Load.lzma(pfn)
         aShape, pPatch = POT.polyPatch(POLYGON=aShape, Xpo=xbix, Ypo=ybix,
@@ -1999,7 +2001,7 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
     au.Write.lzma(gfs, gal)
 
     xbix, ybix = GEO.rotate2D(xpix, ypix, PA)
-    pfn = dDir.parent/'muse'/'obsData'/f"{galaxy}-poly-rot.xz"
+    pfn = dDir.parent/'muse'/'obsData'/f"{galaxy}{dcName}-poly-rot.xz"
     if pfn.is_file():
         aShape = au.Load.lzma(pfn)
         aShape, pPatch = POT.polyPatch(POLYGON=aShape, Xpo=xbix, Ypo=ybix,

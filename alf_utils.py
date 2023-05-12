@@ -32,6 +32,7 @@ v1.5:   Added `priors` kwarg to `alfWrite`. 13 October 2022
 v1.6:   Break the spectra scripts into smaller chunks. 26 October 2022
 v1.7:   Fixed bug in `getM2L` by using `RZ.shiftFnu` to compute the model
             magnitude as well. 6 December 2022
+v1.8:   Run `make clean` before `make` in `alfWrite`. 8 March 2023
 """
 from __future__ import print_function, division
 
@@ -285,7 +286,7 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
     sStr += u'# Remove prior placeholders on velz\n'
     sStr += u'sed -i "/prlo%velz = -999./d" alf.f90\n'
     sStr += u'sed -i "/prhi%velz = 999./d" alf.f90\n'
-    sStr += u'make all && make clean\n'
+    sStr += u'make clean && make all && make clean\n'
     sStr += u'cd ${ALF_HOME}\n'
     sStr += u'# Run aperture fit\n'
     sStr += u'mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} '\
@@ -323,7 +324,7 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
         sStr += f"sed -n -f ${{ALF_HOME}}{galaxy}{dcName}/alf_replace.sed "\
             'alf.f90 >> alf_tmp.f90\n'
         sStr += u'mv alf_tmp.f90 alf.f90\n\n'
-        sStr += u'make all && make clean\n\n'
+        sStr += u'make clean && make all && make clean\n\n'
     sStr += u'# Move executables to local directory\n'
     sStr += u'cd ${ALF_HOME}\n'
     sStr += f"mkdir {galaxy}{dcName}/bin\n"

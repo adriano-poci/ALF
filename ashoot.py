@@ -273,7 +273,7 @@ def specCal():
     plt.clf(); plt.scatter(np.log10(wrp), np.log10(wrFlux), s=1, label='WFM'); plt.scatter(np.log10(wrp), np.log10(bnFlux), s=1, label='Binned NFM'); plt.legend(); plt.savefig('logBinFluxProfiles')
 
     crads = np.arange(1.2, 3.8, 0.2)
-    cmap = mpl.cm.get_cmap('IDLSTDGAMMA')
+    cmap = mpl.colormaps['IDLSTDGAMMA']
     figR = plt.figure()
     figN = plt.figure()
     figW = plt.figure()
@@ -317,3 +317,69 @@ def specCal():
     plt.clf(); plt.plot(nLamb[1:], uncont); plt.axvspan(7600, 7690, facecolor='k', alpha=0.4); plt.savefig('uncont')
     np.savetxt(curdir/'indata'/"SNL1_corr.dat", np.column_stack((nLamb[1:], uncont, uncont*0.03, weis, velRes)), fmt='%20.10f', header=f"{nLamb[1:][0]*1e-4:.5f} {nLamb[1:][-1]*1e-4:.5f}")
     pdb.set_trace()
+
+def aperSpec():
+    wfm = next((dDir/'MUSECubes').glob(f"*SNL1_WFM_DATACUBE*.fits"))
+    wdu = pf.open(wfm)
+    wdd = wdu[1].header
+    wnL, wnY, wnX = wdd['NAXIS3'], wdd['NAXIS2'], wdd['NAXIS1']
+    wxOrg, wyOrg = GEO.genPix(np.arange(wnX), np.arange(wnY))
+    wpixs = np.abs(wdd['CD1_1']) * 60. * 60.
+    wLamb = wdd['CRVAL3']+np.arange(wnL)*wdd['CD3_3']
+    wCube = np.ma.masked_invalid(wdu[1].data)
+    weCube = np.ma.masked_invalid(wdu[2].data)
+    wFlux = np.ma.sum(wCube, axis=0)
+    wdu.close()
+    wxc, wyc, _, _ = PHT.findCentre(wFlux, 'SNL1')
+    wxp = (wxOrg-wxc)*wpixs
+    wyp = (wyOrg-wyc)*wpixs
+    wrp = np.sqrt(wxp**2 + wyp**2)
+    
+    nfm = next((dDir/'MUSECubes').glob(f"*SNL1_NFM_DATACUBE*.fits"))
+    ndu = pf.open(nfm)
+    ndd = ndu[0].header
+    nnL, nnY, nnX = ndd['NAXIS3'], ndd['NAXIS2'], ndd['NAXIS1']
+    nxOrg, nyOrg = GEO.genPix(np.arange(nnX), np.arange(nnY))
+    npixs = np.abs(ndd['CD1_1']) * 60. * 60.
+    nLamb = ndd['CRVAL3']+np.arange(nnL)*ndd['CD3_3']
+    nCube = np.ma.masked_invalid(ndu[0].data)
+    neCube = np.ma.masked_invalid(ndu[1].data)
+    nFlux = np.ma.sum(nCube, axis=0)
+    ndu.close()
+    nxc, nyc, _, _ = PHT.findCentre(nFlux, 'SNL1_NFM')
+    nxp = (nxOrg-nxc)*npixs
+    nyp = (nyOrg-nyc)*npixs
+    nrp = np.sqrt(nxp**2 + nyp**2)
+
+    wrFlux = wFlux.ravel()
+    nrFlux = nFlux.ravel()
+    fwCube = wCube.reshape(wnL, -1)
+    fnCube = nCube.reshape(nnL, -1)
+    fewCube = weCube.reshape(wnL, -1)
+    fenCube = neCube.reshape(nnL, -1)
+
+    dWave, dLSF = np.loadtxt(dDir/'MUSE.lsf', unpack=True)
+    dLSFFunc = interp1d(dWave, dLSF, 'linear', fill_value='extrapolate')
+
+    r1 = np.where(wrp <= 1.)[0]
+    r2 = np.where(nrp <= 1.)[0]
+    dwSpec = np.ma.sum(fwCube[:, r1], axis=1)
+    dnSpec = np.ma.sum(fnCube[:, r2], axis=1)
+    dewSpec = np.ma.squeeze(np.ma.sqrt(np.ma.sum(fewCube[:, r1]**2, axis=1)))
+    denSpec = np.ma.squeeze(np.ma.sqrt(np.ma.sum(fenCube[:, r1]**2, axis=1)))
+    wRelErr = dewSpec / dwSpec
+    nRelErr = denSpec / dnSpec
+    dwSpec /= np.ma.median(dwSpec)
+    dnSpec /= np.ma.median(dnSpec)
+    dewSpec = np.abs(dwSpec)*wRelErr
+    denSpec = np.abs(dnSpec)*nRelErr
+
+    dWave, dLSF = np.loadtxt(dDir/'MUSE.lsf', unpack=True)
+    dLSFFunc = sint.interp1d(dWave, dLSF, 'linear', fill_value='extrapolate')
+    nMuseLSF = dLSFFunc(nLamb)
+    nVelRes = CTS.c/(nLamb/nMuseLSF)
+    wMuseLSF = dLSFFunc(wLamb)
+    wVelRes = CTS.c/(wLamb/wMuseLSF)
+
+    np.savetxt(curdir/'indata'/"SNL1_WFM_1arcs.dat", np.column_stack((wLamb, dwSpec, dewSpec, np.ones_like(wLamb), wVelRes)), fmt='%20.10f', header=f"{wLamb[0]*1e-4:.5f} {wLamb[-1]*1e-4:.5f}")
+    np.savetxt(curdir/'indata'/"SNL1_NFM_1arcs.dat", np.column_stack((nLamb, dnSpec, denSpec, np.ones_like(nLamb), nVelRes)), fmt='%20.10f', header=f"{nLamb[0]*1e-4:.5f} {nLamb[-1]*1e-4:.5f}")
