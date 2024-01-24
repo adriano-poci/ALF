@@ -40,6 +40,31 @@ v1.8:   Added extra 100km s^{-1} model smoothening internal to alf in `afh`. 22
 v1.9:   Use new `polyPatch`. 1 February 2023
 v1.10:  Pull `smin` and `smax` from `kwargs` if provided;
         Use `dcName` for polygon patch files. 21 March 2023
+v1.11:  Corrected elemental abundance labels to be relative to Hydrogen. 16 May
+            2023
+v1.12:  Changed colourmaps to `seaborn.icefire`;
+        Fixed bug in max IMF colour value. 13 June 2023
+v1.13:  Prettyfied the `input` figure in `showPlots`;
+        Corrected label references for the corner plot in `showPlots`. 4 July
+            2023
+v1.14:  Renamed input properties to `AAP*` to avoid confusion with output `AFH*`
+            in `aap`. 5 July 2023
+v1.15:  Check for strings in `_mpSpecFromSum`. 26 October 2023
+v1.16:  Plot full spectral fit in `showPlots`;
+        Allow list of apertures in `showPlots`;
+        Check IMF type before plotting corner in `showPlots`. 7 November 2023
+v1.17:  Improved full spectral fit figure in `showPlots`;
+        Added `dust` treatment. 16 November 2023
+v1.18:  Only plot one map if there is only one IMF free parameter in `afh`. 17
+            December 2023
+v1.19:  Plot [Fe/H] as metallicity, since [Z/H] is only a technical parameter in
+            alf --- it determines the isochrone set, but isn't physically the
+            metallicity;
+        Plot only the abundances with some dynamic range. 18 December 2023
+v1.20:  Added `radial` argument to `pplots` to separate the radial profiles of
+            the stellar populations;
+        Romanicised the metallicity label;
+        Added posterior samples to the abundance profiles. 20 December 2023
 """
 from __future__ import print_function, division
 
@@ -56,19 +81,23 @@ import shutil as su
 import numpy as np
 from scipy import ndimage
 from scipy.stats.mstats import scoreatpercentile as sssp
+from scipy.interpolate import interp1d
+from skimage import filters as skilters
 from astropy.io import fits as pf
 from astropy.stats import sigma_clip as assc
 from astropy.cosmology import z_at_value as azav, Planck18 as cosmo
 import matplotlib.pyplot as plt
-from matplotlib import cm
+from matplotlib import cm, ticker
 import matplotlib.gridspec as gridspec
 import matplotlib.patheffects as PathEffects
+import seaborn as sns
 import multiprocessing as mp
 from functools import partial
 from tqdm import tqdm
 import subprocess as sp
 import itertools
 from inspect import getargvalues as ingav, currentframe as incf
+from svo_filters import svo
 
 # Custom modules
 from alf.Alf import Alf
@@ -88,14 +117,25 @@ from pafit.fit_kinematic_pa import fit_kinematic_pa as fkpa
 from ppxf.ppxf_util import log_rebin
 
 curdir = plp.Path(__file__).parent
-
 dDir = au._ddir()
+icefire = sns.color_palette("icefire", as_cmap=True)
+rocket = sns.color_palette("rocket", as_cmap=True)
+rocketr = sns.color_palette("rocket_r", as_cmap=True)
 
 CTS = Constants()
 UTS = UnitStr()
 POT = Plot()
 GEO = Geometric()
 PHT = Photometry()
+
+alfFP = ['chi2', 'velz', 'sigma', 'logage', 'zH', 'FeH', 'a', 'C', 'N', 'Na',
+    'Mg', 'Si', 'K', 'Ca', 'Ti', 'V', 'Cr', 'Mn', 'Co', 'Ni', 'Cu', 'Sr', 'Ba',
+    'Eu', 'Teff', 'IMF1', 'IMF2', 'logfy', 'sigma2', 'velz2', 'logm7g',
+    'hotteff', 'loghot', 'fy_logage', 'logemline_h', 'logemline_oii',
+    'logemline_oiii', 'logemline_sii', 'logemline_ni', 'logemline_nii',
+    'logtrans', 'jitter', 'logsky', 'IMF3', 'IMF4', 'h3', 'h4', 'ML_v', 'ML_i',
+    'ML_k', 'MW_v', 'MW_i', 'MW_k']
+# ORder of ALF free parameters
 
 # ------------------------------------------------------------------------------
 
@@ -194,7 +234,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         'ndat', 'nparsimp', 'nindx', 'nfil',  'nhot', 'imflo', 'imfhi',
         'krpa_imf1', 'krpa_imf2', 'krpa_imf3']
     CNF = dict()
-    with open(curdir/'src'/'alf.f90.perm', 'r') as af:
+    with open(curdir/'src'/'alf.perm.f90', 'r') as af:
         af90 = af.read()
     with open(curdir/'src'/'alf_vars.f90', 'r') as af:
         vf90 = af.read()
@@ -224,9 +264,9 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     CNF['full'] = full
     au.Write.lzma(gDir/'config.xz', CNF)
 
-    kinF = gDir/f"AFH_SN{targetSN:02d}_{tEnd}.xz"
+    kinF = gDir/f"AAP_SN{targetSN:02d}_{tEnd}.xz"
     if isinstance(kfn, type(None)):
-        kfn = plp.Path(f"AFH_SN{targetSN:02d}_{tEnd}.xz")
+        kfn = plp.Path(kinF.name)
     else:
         kfn = plp.Path(kfn).name
 
@@ -322,7 +362,6 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         overwrite=True)
     fluxi = fluxii.ravel()
 
-
     gal = au.Load.lzma(gfs)
     if 'z' in gal.keys():
         RZ = Redshift(redshift=gal['z'])
@@ -349,13 +388,18 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     lPix = lambA[saur]
     lmin, lmax = lPix.min(), lPix.max()
     llen = saur.size
+    llen = saur.size
+
+    lMask = np.ma.ones(lPix.size, dtype=bool)
+    for pair in smask:
+        lMask[(lPix <= pair[1]) & (lPix >= pair[0])] = 0
 
     if pixels:
         print('Reading pixel grid...')
         xp, yp, sele, pixs = au.Load.lzma(pifs)
         flux = np.compress(sele, fluxi)
-        xc, yc, photPA, fcfg = PHT.findCentre(np.ma.masked_array(fluxii,
-            mask=~sele), galaxy)
+        xc, yc, photPA, fcfg, gPlt, fPlt = PHT.findCentre(np.ma.masked_array(
+            fluxii, mask=~sele), galaxy)
         print('Done.')
     else:
         print('Generating pixel grid...')
@@ -605,7 +649,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
                 [415, 387, 10],
             ]
             ellips = []
-        elif 'SNL1' in galaxy and dcName == '':
+        elif 'SNL1' in galaxy and 'WFM' in dcName:
             # GIMP gives reversed y-axis
             points = []
             ellips = [
@@ -658,11 +702,44 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
             sele &= np.sqrt((xOrgi-160)**2 + (yOrgi-152)**2) <= 55
         if 'SNL0' in galaxy:
             sele &= np.sqrt((xOrgi-276)**2 + (yOrgi-232)**2) <= 150
+        if 'SNL1' in galaxy and 'NFM' in dcName:
+            sele &= np.sqrt((xOrgi-177)**2 + (yOrgi-169)**2) <= int(1.25/2./pixs)
         if 'SNL2' in galaxy:
             sele &= np.sqrt((xOrgi-205)**2 + (yOrgi-(125))**2) <= 100
 
-        xc, yc, photPA, fcfg = PHT.findCentre(np.ma.masked_array(fluxii,
-            mask=~sele), galaxy)
+        xc, yc, photPA, fcfg, gPlt, fPlt = PHT.findCentre(
+            np.ma.masked_array(fluxii, mask=~sele), galaxy)
+
+        if kwargs.pop('dust', False):
+            # make colour image
+            bfil = svo.Filter('WFPC2.F439W')
+            rfil = svo.Filter('WFPC2.F814W')
+            bWave = bfil.wave.to('angstrom').value.flatten()
+            bTrans = bfil.throughput.flatten()
+            bUps = interp1d(bWave, bTrans, fill_value='extrapolate')
+            bFilt = bUps(lambA).clip(0.0)
+            rWave = rfil.wave.to('angstrom').value.flatten()
+            rTrans = rfil.throughput.flatten()
+            rUps = interp1d(rWave, rTrans, fill_value='extrapolate')
+            rFilt = rUps(lambA).clip(0.0)
+            # collapse data cube after applying filter
+            if isinstance(hData, type(None)):
+                hData = np.ma.masked_invalid(hdu[dataExt].data)
+            bImg = np.sum(np.multiply(hData, bFilt[:, np.newaxis, np.newaxis]),
+                axis=0)
+            rImg = np.sum(np.multiply(hData, rFilt[:, np.newaxis, np.newaxis]),
+                axis=0)
+            dImg = bImg - rImg # colour image
+            # unsharp mask the colour image
+            smooth = skilters.gaussian(dImg, 1.5)
+            uMask = dImg - smooth
+            dust = np.ma.masked_less(uMask.ravel(), 290.)
+            dMask = np.ma.getmaskarray(dust)
+            dMask[(xOrgi-xc)*pixs > 0.075] = True # mask the non-dust
+            dMask[np.sqrt(((xOrgi-xc)*pixs)**2 + ((yOrgi-yc)*pixs)**2) > 1.5
+                ] = True
+            # plt.clf(); dpp((xOrgi-xc)*pixs, (yOrgi-yc)*pixs, sele & dMask, pixelsize=pixs); plt.savefig('mask'); plt.close('all')
+            sele &= dMask # invert the mask
 
         xOrg = np.compress(sele, xOrgi)
         yOrg = np.compress(sele, yOrgi)
@@ -752,8 +829,8 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         gspecs = np.take(gspecs, saur, axis=0)
         stats = np.take(stats, saur, axis=0)
 
-        notch = [576, 605] # [nm], maximum range for both NFM and WFM
-        nww = np.where((lPix < notch[0]*10) | (lPix > notch[1]*10))[0]
+        # notch = [576, 605] # [nm], maximum range for both NFM and WFM
+        # nww = np.where((lPix < notch[0]*10) | (lPix > notch[1]*10))[0]
         # the notch contributes NaNs to every spectrum, but isn't of
         #   concern
 
@@ -764,20 +841,19 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         else:
             print('Generating selection...')
 
-            nNaN = np.count_nonzero(np.isnan(gspecs[nww, :].data), axis=0)
+            nNaN = np.count_nonzero(np.isnan(gspecs[lMask, :].data), axis=0)
             nNeg = np.count_nonzero(gspecs < 0, axis=0)
             if srn:
                 print(f"{'': <4s}Reading S/N...")
                 SNR = au.Load.lzma(snfs)
             else:
                 print(f"{'': <4s}Computing S/N...")
-                signal = np.ma.median(gspecs, axis=0)
-                noise = np.abs(np.ma.median(stats, axis=0))
+                signal = np.ma.median(gspecs[lMask, :], axis=0)
+                noise = np.abs(np.ma.median(stats[lMask, :], axis=0))
                 SNR = np.divide(signal, noise)
                 au.Write.lzma(snfs, SNR)
             snEps, snPA, snRad, snMask = SNRing(
-                SNR, minSN, xp, yp, flux, pixs, debug=True, galaxy=galaxy)
-            del flux
+                SNR, minSN, xp, yp, flux, pixs, debug=True, galaxyPath=gDir)
             # maximum 10% NaN or negative values
             goods = (nNaN < llen/20.) & (nNeg < llen/20.) & (SNR >= minSN) & \
                 snMask
@@ -788,7 +864,6 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
                     mask = np.where(((xp-X)**2 + (yp-Y)**2) < dia)[0]
                     goods[mask] = False
 
-            del nNaN, nNeg
             au.Write.lzma(sefs, [saur, goods])
             print('Done.', flush=True)
         # Defined variable here:
@@ -819,8 +894,8 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         if vbin:
             try:
                 print('Running Voronoi tesselation binning...', flush=True)
-                gMed = np.ma.median(gspecs, axis=0)
-                sMed = np.ma.median(stats, axis=0)  # median(1σ)
+                gMed = np.ma.median(gspecs[lMask, :], axis=0)
+                sMed = np.ma.median(stats[lMask, :], axis=0)  # median(1σ)
                 sMed[np.ma.getmaskarray(sMed)] = np.ma.median(sMed)
                 # one last check
                 binNum, xpin, ypin, xbar, ybar, endSN, nPixels, scale = v2db(
@@ -910,7 +985,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         ax.axvspan(pair[0], pair[1], alpha=0.5, facecolor='r', edgecolor=None,
             fill=True)
     fig.savefig(gDir/'apertureSpecMask.pdf')
-
+    au.Write.lzma(gDir/'apertureSpec.figz', fig)
 
     output['lVal'] = lmin
     output['lN'] = llen
@@ -938,11 +1013,16 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
 
     au.alfWrite(galaxy, targetSN, nbins, qProps=qProps, priors=priors,
         dcName=dcName)
+    plt.close('all')
 
 # ------------------------------------------------------------------------------
 
 def _mpSpecFromSum(aper, galaxy, SN, dcName=''):
-    mfn = f"{galaxy}_SN{SN:02d}_{aper:04d}"
+    try:
+        tail = f"{aper:04d}"
+    except ValueError:
+        tail = f"{aper}"
+    mfn = f"{galaxy}_SN{SN:02d}_{tail}"
     if not (curdir/'results'/f"{mfn}.bestspec2").is_file() and \
         (curdir/'results'/f"{mfn}.bestspec").is_file():
         # Generate model on longer wavelength range
@@ -974,12 +1054,15 @@ def makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[],
                 SN=SN, dcName=dcName), apers)
             for j in tqdm(it, desc='specSum', total=nSpat):
                 pass
+    else:
+        for aper in tqdm(apers, desc='specSum', total=nSpat):
+            _mpSpecFromSum(aper, galaxy, SN, dcName)
 
 # ------------------------------------------------------------------------------
 
 def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
-    pplots=['kin', 'err', 'age', 'metal', 'imf', 'ml', 'abund'], band='F814W',
-    NMP=15, contours=False, dcName='', **kwargs):
+    pplots=['kin', 'err', 'age', 'metal', 'imf', 'ml', 'abund', 'radial'],
+    band='F814W', NMP=15, contours=False, dcName='', **kwargs):
     """_summary_
 
     Args:
@@ -996,11 +1079,13 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         dcName (str, optional): a suffix to add to the model directory
     Raises:
         RuntimeError: _description_
+    Examples
+    --------
+        am.afh('SNL1', SN=80, full=True, FOV=False, band='F814W',
+            photFilt='WFPC2.F814W', dcName='NFMESOouter')
     """    
 
-    frame = incf()
-    funcArgs, _, _, funcValues = ingav(frame)
-    pNames = funcValues['pplots']
+    posterior = kwargs.pop('posterior', False)
 
     if not full: # Clip the spectral data if required
         tEnd = 'trunc'
@@ -1027,6 +1112,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     print('Run Options:\n'+'\n'.join([f"{'': <4s}{key: >20s}: {CFG[key]}" for
         key in interest]))
 
+    young = bool(int(CFG['fit_two_ages']))
+    imft = bool(int(CFG['imf_type']))
+
     binNum = VO['binNum']
     nSpat = VO['xbin'].size
 
@@ -1047,7 +1135,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         if not afs.is_file():
             print('Generating...')
             outs = np.sort([xi for xi in plp.Path(curdir/'results').glob(
-                f"{galaxy}_SN{SN:02d}_*.mcmc")])
+                f"{galaxy}_SN{SN:02d}_*.mcmc")])[:nSpat] # omit 'aperture'
             ALF = dict()
             for j, out in tqdm(enumerate(outs), desc='Reading ALF',
                     total=nSpat):
@@ -1063,7 +1151,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             print(f"Reading {afs}...")
             ALF = au.Load.pickl(afs)
 
-        mIdx = ALF['0000'].results['Type'].tolist().index('mean')
+        # mIdx = ALF['0000'].results['Type'].tolist().index('mean')
+        mIdx = ALF['0000'].results['Type'].tolist().index('chi2')
         eIdx = ALF['0000'].results['Type'].tolist().index('error')
 
         KIN = dict()
@@ -1088,21 +1177,25 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         SFH['agee'] = np.ma.ones(nSpat)*np.nan
         SFH['zH'] = np.ma.ones(nSpat)*np.nan
         SFH['zHe'] = np.ma.ones(nSpat)*np.nan
+        SFH['FeH'] = np.ma.ones(nSpat)*np.nan
+        SFH['FeHe'] = np.ma.ones(nSpat)*np.nan
         SFH['yage'] = np.ma.ones(nSpat)*np.nan
         SFH['yagee'] = np.ma.ones(nSpat)*np.nan
         SFH['fyage'] = np.ma.ones(nSpat)*np.nan
         SFH['fyagee'] = np.ma.ones(nSpat)*np.nan
         SFH['abundances'] = dict()
-        aLabels = [r'$[{\rm Fe/H}]$', r'$[\alpha{\rm /Fe}]$', r'$[{\rm C/Fe}]$',
-            r'$[{\rm N/Fe}]$', r'$[{\rm Na/Fe}]$', r'$[{\rm Mg/Fe}]$',
-            r'$[{\rm Si/Fe}]$', r'$[{\rm K/Fe}]$', r'$[{\rm Ca/Fe}]$',
-            r'$[{\rm Ti/Fe}]$', r'$[{\rm V/Fe}]$', r'$[{\rm Cr/Fe}]$',
-            r'$[{\rm Mn/Fe}]$', r'$[{\rm Co/Fe}]$', r'$[{\rm Ni/Fe}]$',
-            r'$[{\rm Cu/Fe}]$', r'$[{\rm Sr/Fe}]$', r'$[{\rm Ba/Fe}]$',
-            r'$[{\rm Eu/Fe}]$']
+        aLabels = [r'$[\alpha{\rm /Fe}]$', r'$[{\rm C/H}]$',
+            r'$[{\rm N/H}]$', r'$[{\rm Na/H}]$', r'$[{\rm Mg/H}]$',
+            r'$[{\rm Si/H}]$', r'$[{\rm K/H}]$', r'$[{\rm Ca/H}]$',
+            r'$[{\rm Ti/H}]$', r'$[{\rm V/H}]$', r'$[{\rm Cr/H}]$',
+            r'$[{\rm Mn/H}]$', r'$[{\rm Co/H}]$', r'$[{\rm Ni/H}]$',
+            r'$[{\rm Cu/H}]$', r'$[{\rm Sr/H}]$', r'$[{\rm Ba/H}]$',
+            r'$[{\rm Eu/H}]$']
         aMask = [ki for ki, key in enumerate(np.take(_popKeys,
-            np.arange(1, 20)+1)) if key in ALF['0000'].labels]
-        aKeys = np.take(np.take(_popKeys, np.arange(1, 20)+1), aMask)
+            np.arange(2, 20)+1)) if (key in ALF['0000'].labels) and
+            (np.ptp([ALF[f"{aper:04d}"].results[key][mIdx] for aper in
+                range(nSpat)]) > 1e-3)]
+        aKeys = np.take(np.take(_popKeys, np.arange(2, 20)+1), aMask)
         aLabels = np.take(aLabels, aMask)
         SFH['abundances']['keys'] = aKeys
         SFH['abundances']['labels'] = aLabels
@@ -1150,6 +1243,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 10.0**(ALF[f"{aper:04d}"].results['logfy'][eIdx])
             SFH['zH'][aper] = ALF[f"{aper:04d}"].results['zH'][mIdx]
             SFH['zHe'][aper] = ALF[f"{aper:04d}"].results['zH'][eIdx]
+            SFH['FeH'][aper] = ALF[f"{aper:04d}"].results['FeH'][mIdx]
+            SFH['FeHe'][aper] = ALF[f"{aper:04d}"].results['FeH'][eIdx]
             # MLa = au.getM2L('solar',
             #     ALF[f"{aper:04d}"].results['logage'][mIdx], SFH['zH'][aper],
             #     SFH['IMF']['1'][aper], SFH['IMF']['2'][aper], 2.3, RZ=RZ,
@@ -1172,6 +1267,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
 
     gfs = curdir.parent/'muse'/'obsData'/f"{galaxy}.xz"
     gal = au.Load.lzma(gfs)
+
+    aKeys = SFH['abundances']['keys']
 
     if contours:
         fluxii = pf.open(mDir/f"collapsed.fits")[0].data
@@ -1271,7 +1368,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         mome += [fr"h{j+3:d}"]
         units += ['']
 
-    if 'kin' in pNames:
+    if 'kin' in pplots:
         gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)
         fig = plt.figure(figsize=plt.figaspect(aspect)*1.5)
         for mm in tqdm(range(nMom)):
@@ -1280,7 +1377,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             lab = r'\ '.join([ql for ql in [mome[mm], units[mm]] if ql != ''])
 
             img = dpp(xpix, ypix, (KIN[f"{mm+1:d}"][binNum]), pixelsize=pixs,
-                      vmin=lmi, vmax=lma, angle=PA)
+                vmin=lmi, vmax=lma, angle=PA, cmap=icefire)
             ax.set_xlim(xmin, xmax)
             ax.set_ylim(ymin, ymax)
             ax.add_patch(copy(pPatch))
@@ -1298,7 +1395,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
             cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-                rotation=270, color='white', transform=cax.transAxes)
+                rotation=270, color='black', transform=cax.transAxes)
             cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
                 rotation=270, color='black', transform=cax.transAxes)
             cb.set_ticks([])
@@ -1323,7 +1420,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         fig.savefig(mDir/f"kinematics_4_SN{SN:02d}")
         plt.close('all')
 
-    if 'err' in pNames:
+    if 'err' in pplots:
         gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)
         fig = plt.figure(figsize=plt.figaspect(aspect)*1.5)
 
@@ -1346,7 +1443,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 units[mm]] if ql != ''])
 
             img = dpp(xpix, ypix, (KIN[f"{mm+1:d}e"][binNum]), pixelsize=pixs,
-                vmin=emin, vmax=emax, angle=PA)
+                vmin=emin, vmax=emax, angle=PA, cmap=icefire)
             ax.set_xlim(xmin, xmax)
             ax.set_ylim(ymin, ymax)
             ax.add_patch(copy(pPatch))
@@ -1364,7 +1461,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
             cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-                rotation=270, color='white', transform=cax.transAxes)
+                rotation=270, color='black', transform=cax.transAxes)
             cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
                 rotation=270, color='black', transform=cax.transAxes)
             cb.set_ticks([])
@@ -1389,7 +1486,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         fig.savefig(mDir/f"kinematicErrors_4_SN{SN:02d}")
         plt.close('all')
 
-    if 'age' in pNames:
+    if 'age' in pplots:
         mwage = np.ma.average(np.column_stack((SFH['age'], SFH['yage'])),
             weights=np.column_stack((1-SFH['fyage'], SFH['fyage'])), axis=1)
         mmin, mmax = POT.sigClip(mwage, 'mwage', clipBins=0.05)
@@ -1397,19 +1494,17 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         jmin, jmax = POT.sigClip(SFH['yage'], 'yage', clipBins=0.05)
         fmin, fmax = POT.sigClip(SFH['fyage'], 'fyage', clipBins=0.05)
 
-        young = bool(int(CFG['fit_two_ages']))
-
         if young:
             gs = gridspec.GridSpec(2, 2, hspace=0.0, wspace=0.0)
             mainAge = mwage
         else:
             gs = gridspec.GridSpec(1, 1, hspace=0.0, wspace=0.0)
             mainAge = SFH['age']
-        fig = plt.figure(figsize=plt.figaspect(yLen/xLen)*1.5)
+        fig = plt.figure(figsize=plt.figaspect(yLen/xLen))
 
         ax = fig.add_subplot(gs[0])
         img = dpp(xpix, ypix, mainAge[binNum], pixelsize=pixs, vmin=mmin,
-            vmax=mmax, angle=PA)
+            vmax=mmax, angle=PA, cmap=icefire)
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
         ax.add_patch(copy(pPatch))
@@ -1424,13 +1519,13 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         maText = POT.prec(pren, mmax)
         cax = POT.attachAxis(ax, 'right', 0.05, mid=True)
         cb = plt.colorbar(img, cax=cax)
-        lT = cax.text(0.5, 0.5, fr"$\langle t\rangle\ [{UTS.gyr}]$",
+        lT = cax.text(0.5, 0.5, rf"$\langle t\rangle\ [{UTS.gyr}]$",
             va='center', ha='center', rotation=270, color=POT.lmagen,
             transform=cax.transAxes)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
         cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-            rotation=270, color='white', transform=cax.transAxes)
+            rotation=270, color='black', transform=cax.transAxes)
         cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
             rotation=270, color='black', transform=cax.transAxes)
         cb.set_ticks([])
@@ -1439,7 +1534,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         if young:
             ax = fig.add_subplot(gs[1])
             img = dpp(xpix, ypix, SFH['age'][binNum], pixelsize=pixs, vmin=amin,
-                vmax=amax, angle=PA)
+                vmax=amax, angle=PA, cmap=icefire)
             ax.set_xlim(xmin, xmax)
             ax.set_ylim(ymin, ymax)
             ax.add_patch(copy(pPatch))
@@ -1460,7 +1555,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
             cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-                rotation=270, color='white', transform=cax.transAxes)
+                rotation=270, color='black', transform=cax.transAxes)
             cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
                 rotation=270, color='black', transform=cax.transAxes)
             cb.set_ticks([])
@@ -1468,7 +1563,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
 
             ax = fig.add_subplot(gs[2])
             img = dpp(xpix, ypix, SFH['yage'][binNum], pixelsize=pixs,
-                vmin=jmin, vmax=jmax, angle=PA)
+                vmin=jmin, vmax=jmax, angle=PA, cmap=icefire)
             ax.set_xlim(xmin, xmax)
             ax.set_ylim(ymin, ymax)
             ax.add_patch(copy(pPatch))
@@ -1489,7 +1584,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
             cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-                rotation=270, color='white', transform=cax.transAxes)
+                rotation=270, color='black', transform=cax.transAxes)
             cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
                 rotation=270, color='black', transform=cax.transAxes)
             cb.set_ticks([])
@@ -1497,7 +1592,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
 
             ax = fig.add_subplot(gs[3])
             img = dpp(xpix, ypix, SFH['fyage'][binNum], pixelsize=pixs,
-                vmin=fmin, vmax=fmax, angle=PA)
+                vmin=fmin, vmax=fmax, angle=PA, cmap=icefire)
             ax.set_xlim(xmin, xmax)
             ax.set_ylim(ymin, ymax)
             ax.add_patch(copy(pPatch))
@@ -1517,7 +1612,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
             cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-                rotation=270, color='white', transform=cax.transAxes)
+                rotation=270, color='black', transform=cax.transAxes)
             cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
                 rotation=270, color='black', transform=cax.transAxes)
             cb.set_ticks([])
@@ -1533,12 +1628,13 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         fig.savefig(mDir/f"afh_age_SN{SN:02d}")
         plt.close('all')
 
-    if 'metal' in pNames:
-        amin, amax = POT.sigClip(SFH['zH'], 'metal', clipBins=0.05)
+    if 'metal' in pplots:
+        amin, amax = POT.sigClip(SFH['FeH'], 'metal',
+            clipBins=0.05)
         fig = plt.figure(figsize=plt.figaspect(yLen/xLen))
         ax = fig.gca()
-        img = dpp(xpix, ypix, SFH['zH'][binNum], pixelsize=pixs,
-            vmin=amin, vmax=amax, angle=PA)
+        img = dpp(xpix, ypix, SFH['FeH'][binNum], pixelsize=pixs,
+            vmin=amin, vmax=amax, angle=PA, cmap=icefire)
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
         ax.add_patch(copy(pPatch))
@@ -1550,13 +1646,13 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         maText = POT.prec(pren, amax)
         cax = POT.attachAxis(ax, 'right', 0.05)
         cb = plt.colorbar(img, cax=cax)
-        lT = cax.text(0.5, 0.5, fr"$[Z/H]$", va='center',
+        lT = cax.text(0.5, 0.5, r'$[\mathrm{Fe/H}]$', va='center',
             ha='center', rotation=270, color=POT.lmagen,
             transform=cax.transAxes)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
         cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-            rotation=270, color='white', transform=cax.transAxes)
+            rotation=270, color='black', transform=cax.transAxes)
         cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
             rotation=270, color='black', transform=cax.transAxes)
         cb.set_ticks([])
@@ -1568,40 +1664,48 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         fig.savefig(mDir/f"afh_metal_SN{SN:02d}")
         plt.close('all')
 
-    if 'imf' in pNames:
+    if 'imf' in pplots:
+
         IMF1 = np.ma.masked_equal(SFH['IMF']['1'], 1)
-        IMF2 = np.ma.masked_equal(SFH['IMF']['2'], 1)
         im1 = np.ma.getmaskarray(IMF1)
-        im2 = np.ma.getmaskarray(IMF2)
         IMF1[im1] = IMF1.data[im1] + ((np.random.ranf()-0.5)*1e-3)
-        IMF2[im2] = IMF2.data[im2] + ((np.random.ranf()-0.5)*1e-3)
-        imfs = [pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.0),
-            slopes=(x1, x2, 2.3)) for (x1, x2) in zip(IMF1, IMF2)]
-        xiTop = np.array(list(map(lambda imf: imf.integrate(
-            mlow=0.2, mhigh=0.5)[0], imfs)))
-        xiBot = np.array(list(map(lambda imf: imf.integrate(
-            mlow=0.2, mhigh=1.0)[0], imfs)))
-        xi = xiTop/xiBot
+        imin, imax = POT.sigClip(IMF1, 'IMF', clipBins=0.025)
 
-        i1min, i1max = POT.sigClip(IMF1, 'IMF', clipBins=0.025)
-        i2min, i2max = POT.sigClip(IMF2, 'IMF', clipBins=0.025)
-        imin = np.min((i1min, i2min))
-        imax = np.min((i1max, i2max))
-        amin, amax = POT.sigClip(xi, 'IMF', clipBins=0.025)
-        gs = gridspec.GridSpec(2, 2, hspace=0.0, wspace=0.0)
-        fig = plt.figure(figsize=plt.figaspect(yLen/xLen)*1.5)
+        fig = plt.figure(figsize=plt.figaspect(yLen/xLen))
 
-        ax = fig.add_subplot(gs[0])
+        if imft == 1 or imft == 3:
+            IMF2 = np.ma.masked_equal(SFH['IMF']['2'], 1)
+            im2 = np.ma.getmaskarray(IMF2)
+            IMF2[im2] = IMF2.data[im2] + ((np.random.ranf()-0.5)*1e-3)
+            imfs = [pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.0),
+                slopes=(x1, x2, 2.3)) for (x1, x2) in zip(IMF1, IMF2)]
+            xiTop = np.array(list(map(lambda imf: imf.integrate(
+                mlow=0.2, mhigh=0.5)[0], imfs)))
+            xiBot = np.array(list(map(lambda imf: imf.integrate(
+                mlow=0.2, mhigh=1.0)[0], imfs)))
+            xi = xiTop/xiBot
+
+            i2min, i2max = POT.sigClip(IMF2, 'IMF', clipBins=0.025)
+            imin = np.min((imin, i2min))
+            imax = np.max((imax, i2max))
+            amin, amax = POT.sigClip(xi, 'IMF', clipBins=0.025)
+            gs = gridspec.GridSpec(2, 2, hspace=0.0, wspace=0.0)
+
+            ax = fig.add_subplot(gs[0])
+            lT = ax.text(1e-3, 1-1e-3, r'$\alpha_1$', va='top', ha='left',
+            color=POT.lmagen, transform=ax.transAxes, zorder=200)
+            lT.set_path_effects(
+                [PathEffects.withStroke(linewidth=1.75, foreground='k')])
+        else:
+            ax = fig.gca()
+            ax.set_xlabel(r'$x\ [{\rm arcsec}]$', labelpad=7)
+            ax.set_ylabel(r'$y\ [{\rm arcsec}]$', labelpad=7)
         img = dpp(xpix, ypix, IMF1[binNum], pixelsize=pixs,
-            vmin=imin, vmax=imax, angle=PA)
+            vmin=imin, vmax=imax, angle=PA, cmap=icefire)
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
         ax.add_patch(copy(pPatch))
         ax.set_xticklabels([])
-        lT = ax.text(1e-3, 1-1e-3, r'$x_1$', va='top', ha='left',
-            color=POT.lmagen, transform=ax.transAxes, zorder=200)
-        lT.set_path_effects(
-            [PathEffects.withStroke(linewidth=1.75, foreground='k')])
         if contours:
             ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
                 levels=flevels)
@@ -1610,76 +1714,81 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         maText = POT.prec(pren, imax)
         cax = POT.attachAxis(ax, 'right', 0.05, mid=True)
         cb = plt.colorbar(img, cax=cax)
-        lT = cax.text(0.5, 0.5, fr"$x_i$", va='center',
+        lT = cax.text(0.5, 0.5, r'$\alpha$', va='center',
             ha='center', rotation=270, color=POT.lmagen,
             transform=cax.transAxes)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
         cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-            rotation=270, color='white', transform=cax.transAxes)
+            rotation=270, color='black', transform=cax.transAxes)
         cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
             rotation=270, color='black', transform=cax.transAxes)
         cb.set_ticks([])
         cax.set_zorder(100)
 
-        ax = fig.add_subplot(gs[1])
-        img = dpp(xpix, ypix, IMF2[binNum], pixelsize=pixs,
-            vmin=imin, vmax=imax, angle=PA)
-        ax.set_xlim(xmin, xmax)
-        ax.set_ylim(ymin, ymax)
-        ax.add_patch(copy(pPatch))
-        ax.set_yticklabels([])
-        lT = ax.text(5e-2, 1-1e-3, r'$x_2$', va='top', ha='left',
-            color=POT.lmagen, transform=ax.transAxes, zorder=200)
-        lT.set_path_effects(
-            [PathEffects.withStroke(linewidth=1.75, foreground='k')])
-        if contours:
-            ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
-                levels=flevels)
-        
-        ax = fig.add_subplot(gs[2])
-        img = dpp(xpix, ypix, xi[binNum], pixelsize=pixs,
-            vmin=amin, vmax=amax, angle=PA)
-        ax.set_xlim(xmin, xmax)
-        ax.set_ylim(ymin, ymax)
-        ax.add_patch(copy(pPatch))
-        lT = ax.text(1e-3, 1-1e-3, r'$\xi$', va='top', ha='left',
-            color=POT.lmagen, transform=ax.transAxes, zorder=200)
-        lT.set_path_effects(
-            [PathEffects.withStroke(linewidth=1.75, foreground='k')])
-        if contours:
-            ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
-                levels=flevels)
+        if imft == 1 or imft == 3:
+            ax = fig.add_subplot(gs[1])
+            img = dpp(xpix, ypix, IMF2[binNum], pixelsize=pixs,
+                vmin=imin, vmax=imax, angle=PA, cmap=icefire)
+            ax.set_xlim(xmin, xmax)
+            ax.set_ylim(ymin, ymax)
+            ax.add_patch(copy(pPatch))
+            ax.set_yticklabels([])
+            lT = ax.text(5e-2, 1-1e-3, r'$\alpha_2$', va='top', ha='left',
+                color=POT.lmagen, transform=ax.transAxes, zorder=200)
+            lT.set_path_effects(
+                [PathEffects.withStroke(linewidth=1.75, foreground='k')])
+            if contours:
+                ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
+                    levels=flevels)
+            
+            ax = fig.add_subplot(gs[2])
+            img = dpp(xpix, ypix, xi[binNum], pixelsize=pixs,
+                vmin=amin, vmax=amax, angle=PA, cmap=icefire)
+            ax.set_xlim(xmin, xmax)
+            ax.set_ylim(ymin, ymax)
+            ax.add_patch(copy(pPatch))
+            lT = ax.text(1e-3, 1-1e-3, r'$\xi$', va='top', ha='left',
+                color=POT.lmagen, transform=ax.transAxes, zorder=200)
+            lT.set_path_effects(
+                [PathEffects.withStroke(linewidth=1.75, foreground='k')])
+            if contours:
+                ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
+                    levels=flevels)
 
-        miText = POT.prec(pren, amin)
-        maText = POT.prec(pren, amax)
-        cax = POT.attachAxis(ax, 'right', 0.05, mid=True)
-        cb = plt.colorbar(img, cax=cax)
-        lT = cax.text(0.5, 0.5, fr"$\xi$", va='center',
-            ha='center', rotation=270, color=POT.lmagen,
-            transform=cax.transAxes)
-        lT.set_path_effects(
-            [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-        cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-            rotation=270, color='white', transform=cax.transAxes)
-        cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
-            rotation=270, color='black', transform=cax.transAxes)
-        cb.set_ticks([])
-        cax.set_zorder(100)
+            miText = POT.prec(pren, amin)
+            maText = POT.prec(pren, amax)
+            cax = POT.attachAxis(ax, 'right', 0.05, mid=True)
+            cb = plt.colorbar(img, cax=cax)
+            lT = cax.text(0.5, 0.5, r'$\xi$', va='center',
+                ha='center', rotation=270, color=POT.lmagen,
+                transform=cax.transAxes)
+            lT.set_path_effects(
+                [PathEffects.withStroke(linewidth=1.5, foreground='k')])
+            cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
+                rotation=270, color='black', transform=cax.transAxes)
+            cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
+                rotation=270, color='black', transform=cax.transAxes)
+            cb.set_ticks([])
+            cax.set_zorder(100)
 
-        ax.set_xlabel(r'$x\ [{\rm arcsec}]$', labelpad=7)
-        ax.set_ylabel(r'$y\ [{\rm arcsec}]$', labelpad=7)
+            BIG = fig.add_subplot(gs[:])
+            BIG.set_frame_on(False)
+            BIG.set_xticks([])
+            BIG.set_yticks([])
+            BIG.set_xlabel(r'$x\ [{\rm arcsec}]$', labelpad=25)
+            BIG.set_ylabel(r'$y\ [{\rm arcsec}]$', labelpad=25)
 
         fig.savefig(mDir/f"afh_IMF_SN{SN:02d}")
         plt.close('all')
 
-    if 'ml' in pNames:
+    if 'ml' in pplots:
 
         amin, amax = POT.sigClip(SFH['ML'][band], f'ML_{band}', clipBins=0.05)
         fig = plt.figure(figsize=plt.figaspect(yLen/xLen))
         ax = fig.gca()
         img = dpp(xpix, ypix, SFH['ML'][band][binNum], pixelsize=pixs,
-            vmin=amin, vmax=amax, angle=PA)
+            vmin=amin, vmax=amax, angle=PA, cmap=icefire)
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
         ax.add_patch(copy(pPatch))
@@ -1691,13 +1800,13 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         maText = POT.prec(pren, amax)
         cax = POT.attachAxis(ax, 'right', 0.05)
         cb = plt.colorbar(img, cax=cax)
-        lT = cax.text(0.5, 0.5, fr"$M/L_{{{band}}}\ [{UTS.msun}/{UTS.lsun}]$",
+        lT = cax.text(0.5, 0.5, rf"$M/L_{{{band}}}\ [{UTS.msun}/{UTS.lsun}]$",
             va='center', ha='center', rotation=270, color=POT.lmagen,
             transform=cax.transAxes)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
         cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-            rotation=270, color='white', transform=cax.transAxes)
+            rotation=270, color='black', transform=cax.transAxes)
         cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
             rotation=270, color='black', transform=cax.transAxes)
         cb.set_ticks([])
@@ -1709,8 +1818,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         fig.savefig(mDir/f"afh_ML{band}_SN{SN:02d}")
         plt.close('all')
 
-    if 'abund' in pNames:
-        aKeys = SFH['abundances']['keys']
+    if 'abund' in pplots:
         nAbund = len(aKeys)
         dim = np.ceil(np.sqrt(nAbund)).astype(int)
         rema = nAbund % dim
@@ -1728,7 +1836,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             amin, amax = POT.sigClip(abund, key, clipBins=0.05)
             ax = main.add_subplot(gs[ai])
             img = dpp(xpix, ypix, abund[binNum], pixelsize=pixs,
-                vmin=amin, vmax=amax, angle=PA)
+                vmin=amin, vmax=amax, angle=PA, cmap=icefire)
             ax.set_xlim(xmin, xmax)
             ax.set_ylim(ymin, ymax)
             ax.add_patch(copy(pPatch))
@@ -1748,7 +1856,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
             cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
-                rotation=270, color='white', transform=cax.transAxes)
+                rotation=270, color='black', transform=cax.transAxes)
             cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
                 rotation=270, color='black', transform=cax.transAxes)
             cb.set_ticks([])
@@ -1764,83 +1872,404 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         main.savefig(mDir/f"afh_elements_SN{SN:02d}")
         plt.close('all')
 
-        main = plt.figure(figsize=plt.figaspect(0.6)*1.3)
-        ax = main.gca()
-        eps = gal['sMGE'].epsE
+    if 'radial' in pplots:
+        if posterior:
+            posfn = mDir/f"afh_elements_posteriors_SN{SN:02d}.xz"
+            nPost = 100
+            if not posfn.is_file():
+                outs = np.sort([xi for xi in plp.Path(curdir/'results').glob(
+                    f"{galaxy}_SN{SN:02d}_*.mcmc")])[:nSpat] # omit 'aperture'
+                pKeys = np.append(aKeys, ['logage', 'FeH', 'IMF1'])
+                if imft == 1 or imft == 3:
+                    pKeys = np.append(pKeys, 'IMF2')
+                maps = dict()
+                for ai, key in enumerate(pKeys):
+                    maps[key] = np.ma.ones((nSpat, nPost))*np.nan
+                maps['ML'] = np.ma.ones((nSpat, nPost))*np.nan
+                for j, out in tqdm(enumerate(outs), total=nSpat,
+                    desc='Generating posterior samples'):
+                    alf = Alf(out.parent/out.stem, mPath=out.parent)
+                    alf.get_total_met()
+                    alf.normalize_spectra()
+                    alf.abundance_correct()
+                    for ai, key in enumerate(pKeys):
+                        aidx = alfFP.index(key)
+                        maps[key][j, :] = np.random.choice(alf.mcmc[:, aidx],
+                            nPost, replace=False)
+                    maps['ML'][j, :] = au.getM2L(f"{galaxy}_SN{SN:02d}_{j:04d}",
+                        np.random.choice(alf.mcmc[:, alfFP.index('logage')],
+                            nPost, replace=False),
+                        np.random.choice(alf.mcmc[:, alfFP.index('zH')],
+                            nPost, replace=False),
+                        np.random.choice(alf.mcmc[:, alfFP.index('IMF1')],
+                            nPost, replace=False),
+                        np.random.choice(alf.mcmc[:, alfFP.index('IMF2')],
+                            nPost, replace=False),
+                        np.repeat(2.3, nPost), RZ=RZ, band=band, **kwargs)
+                au.Write.lzma(posfn, maps)
+            else:
+                maps = au.Load.lzma(posfn)
+        nrad = 12
+        eps = 1.-gal['sMGE'].epsE
         rade = np.sqrt(xbin**2 + (ybin/eps)**2)
         rore = np.argsort(rade)
         rade = np.ma.masked_invalid(np.log10(rade[rore]))
-        medBins = np.linspace(np.ma.min(rade), np.ma.max(rade), 11)
+        medBins = np.linspace(*POT.sigClip(rade, 'radius', 0.1), nrad+1)
         delta = medBins[1:] - medBins[:-1]
         idx = np.digitize(rade, medBins[1:])
         pBins = medBins[1:] - delta/2
-        colmar = mc_list = list(itertools.product(['X', 'p', '^', '<', '>', '1',
-            '2', '3', '4', '8', 's', 'D', 'P', '*', 'h', 'H', '+', 'x', 'o',
-            'v'], plt.rcParams['axes.prop_cycle'].by_key()['color']))
-        for ai, key in enumerate(aKeys):
-            abund = SFH['abundances'][key][rore]
-            label = SFH['abundances']['labels'][ai]
-            mkr, col = colmar[ai]
-            amed = np.array([np.ma.median(abund[idx==k]) for k in range(10)])
-            aerr = np.array([np.ma.std(abund[idx==k]) for k in range(10)])
-            ax.errorbar(pBins, amed, yerr=aerr, marker=mkr, mfc=col,
-                label=label, mew=0.75, mec='k', ecolor=col, ms=12,
-                zorder=len(aKeys)-ai)
+        symbs = ['X', 'p', '^', '<', '>', '8', 's', 'D', 'P', '*', 'h', 'H',
+            '+', 'x', 'o', 'v', '1', '2', '3', '4']
+        colos = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        # dcols = np.tile(plt.rcParams['axes.prop_cycle'].by_key()[
+            # 'color'][::-1], 3)[:len(symbs)]
+        # colmar = [pair for pair in zip(symbs, dcols)]
+        main = plt.figure(figsize=plt.figaspect(1.5)*1.15)
+        gs = gridspec.GridSpec(6, 1, hspace=0.0, wspace=0.0)
+        ai = 0
+
+        ax = main.add_subplot(gs[0])
+        mkr = symbs[ai]
+        col = 'r'
+        amed = np.array([np.ma.median(SFH['age'][idx==k]) for k in
+            range(nrad)])
+        amed = np.ma.masked_invalid(amed)
+        amask = ~np.ma.getmaskarray(amed)
+        if posterior:
+            ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)
+            ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)
+            ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,
+                linewidth=0.75, edgecolors='k', s=70, zorder=50,
+                label=rf"$\langle t\rangle\ [{UTS.gyr}]$")
+            for jp in range(nPost):
+                pamed = np.array([np.ma.median(maps['logage'][:, jp][idx==k])
+                    for k in range(nrad)])
+                pamed = np.ma.masked_invalid(pamed)
+                ax.plot(pBins[amask], 10.0**pamed[amask], alpha=0.2, lw=0.2,
+                    c=col, zorder=0)
+        else:
+            ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
+                marker=mkr, mfc=col, mew=0.75, mec='k', ecolor=col, ms=12,
+                label=rf"$\langle t\rangle\ [{UTS.gyr}]$",
+                zorder=50)
+            aerr = np.array([np.ma.std(SFH['age'][idx==k]) for k in
+                range(nrad)])/2.
+            ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
+                amed[amask]-aerr[amask], alpha=0.1, color=col)
         ax.set_xlim(right=rade.max()*1.15)
-        ax.legend()
-        ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')
+        # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')
+        ax.set_ylabel(rf"$\langle t\rangle\ [{UTS.gyr}]$")
+        kpAx = ax.twiny()
+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *
+            1e-3))
+        kpAx.set_xlabel(fr"$\log_{{10}}(r\ [{UTS.kpace}])$")
+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,
+            top=True)
+        kpAx.xaxis.set_label_position('top')
+        ax.set_xticklabels([])
+
+        ax = main.add_subplot(gs[1])
+        ai += 1
+        mkr = symbs[ai]
+        col = 'r'
+        amed = np.array([np.ma.median(SFH['FeH'][idx==k]) for k in
+            range(nrad)])
+        amed = np.ma.masked_invalid(amed)
+        amask = ~np.ma.getmaskarray(amed)
+        if posterior:
+            ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)
+            ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)
+            ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,
+                linewidth=0.75, edgecolors='k', s=70, zorder=50,
+                label=r'$[\mathrm{Fe/H}]$')
+            for jp in range(nPost):
+                pamed = np.array([np.ma.median(maps['FeH'][:, jp][idx==k])
+                    for k in range(nrad)])
+                pamed = np.ma.masked_invalid(pamed)
+                ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,
+                    c=col, zorder=0)
+        else:
+            ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
+                marker=mkr, mfc=col, mew=0.75, mec='k', ecolor=col, ms=12,
+                label=r'$[\mathrm{Fe/H}]$',
+                zorder=50)
+            aerr = np.array([np.ma.std(SFH['FeH'][idx==k]) for k in
+                range(nrad)])/2.
+            ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
+                amed[amask]-aerr[amask], alpha=0.1, color=col)
+        ax.set_xlim(right=rade.max()*1.15)
+        # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')
+        ax.set_ylabel(r'$[\mathrm{Fe/H}]$')
+        kpAx = ax.twiny()
+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *
+            1e-3))
+        # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")
+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,
+            top=True)
+        kpAx.xaxis.set_label_position('top')
+        ax.set_xticklabels([])
+        kpAx.set_xticklabels([])
+
+        ax = main.add_subplot(gs[2:4])
+        for aj, key in enumerate(aKeys):
+            ai += 1
+            abund = SFH['abundances'][key][rore]
+            label = SFH['abundances']['labels'][aj]
+            mkr = symbs[ai]
+            col = colos[aj]
+            amed = np.array([np.ma.median(abund[idx==k]) for k in range(nrad)])
+            amed = np.ma.masked_invalid(amed)
+            amask = ~np.ma.getmaskarray(amed)
+            if posterior:
+                ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)
+                ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)
+                ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,
+                    label=label, linewidth=0.75, edgecolors='k', s=70,
+                    zorder=len(aKeys)-aj+50)
+                for jp in range(nPost):
+                    pamed = np.array([np.ma.median(maps[key][:, jp][idx==k]) for
+                        k in range(nrad)])
+                    pamed = np.ma.masked_invalid(pamed)
+                    ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,
+                        c=col, zorder=0)
+            else:
+                ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
+                    marker=mkr, mfc=col, label=label, mew=0.75, mec='k',
+                    ecolor=col, ms=12, zorder=len(aKeys)-aj)
+                aerr = np.array([np.ma.std(abund[idx==k]) for k in
+                    range(nrad)])/2.
+                ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
+                    amed[amask]-aerr[amask], alpha=0.1, color=col)
+        ax.legend(ncol=4)
+        ax.set_xlim(right=rade.max()*1.15)
+        ax.set_ylim(top=np.max(ax.get_ylim())*1.5)
+        # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')
         ax.set_ylabel(r'${\rm Abundance}\ [{\rm dex}]$')
-        main.savefig(mDir/f"afh_elements_radial_SN{SN:02d}.pdf", format='pdf')
+        kpAx = ax.twiny()
+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *
+            1e-3))
+        # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")
+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,
+            top=True)
+        kpAx.xaxis.set_label_position('top')
+        ax.set_xticklabels([])
+        kpAx.set_xticklabels([])
+
+        ax = main.add_subplot(gs[4])
+        ai += 1
+        mkr = symbs[ai]
+        col = 'r'
+        amed = np.array([np.ma.median(SFH['IMF']['1'][idx==k]) for k in
+            range(nrad)])
+        amed = np.ma.masked_invalid(amed)
+        amask = ~np.ma.getmaskarray(amed)
+        if posterior:
+            ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)
+            ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)
+            ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,
+                label=r'$\alpha_1$', linewidth=0.75, edgecolors='k', s=70,
+                zorder=50)
+            for jp in range(nPost):
+                pamed = np.array([np.ma.median(maps['IMF1'][:, jp][idx==k]) for
+                    k in range(nrad)])
+                pamed = np.ma.masked_invalid(pamed)
+                ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,
+                    c=col, zorder=0)
+        else:
+            ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
+                marker=mkr, mfc=col, label=r'$\alpha_1$', mew=0.75, mec='k',
+                ecolor=col, ms=12, zorder=50)
+            aerr = np.array([np.ma.std(SFH['IMF']['1'][idx==k]) for k in
+                range(nrad)])/2.
+            ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
+                amed[amask]-aerr[amask], alpha=0.1, color=col)
+        if imft == 1 or imft == 3:
+            ai += 1
+            mkr, col = colmar[ai]
+            amed = np.array([np.ma.median(SFH['IMF']['2'][idx==k]) for k in
+                range(nrad)])
+            amed = np.ma.masked_invalid(amed)
+            amask = ~np.ma.getmaskarray(amed)
+            if posterior:
+                ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)
+                ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)
+                ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,
+                    label=r'$\alpha_2$', linewidth=0.75, edgecolors='k', s=70,
+                    zorder=50)
+                for jp in range(nPost):
+                    pamed = np.array([np.ma.median(maps['IMF2'][:, jp][idx==k])
+                        for k in range(nrad)])
+                    pamed = np.ma.masked_invalid(pamed)
+                    ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,
+                        c=col, zorder=0)
+            else:
+                ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
+                    marker=mkr, mfc=col, label=r'$\alpha_2$', mew=0.75, mec='k',
+                    ecolor=col, ms=12, zorder=50)
+                aerr = np.array([np.ma.std(SFH['IMF']['2'][idx==k]) for k in
+                    range(nrad)])/2.
+                ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
+                    amed[amask]-aerr[amask], alpha=0.1, color=col)
+            ax.legend(ncols=2)
+        ax.set_xlim(right=rade.max()*1.15)
+        # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')
+        ax.set_ylabel(r'$\alpha$')
+        kpAx = ax.twiny()
+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *
+            1e-3))
+        # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")
+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,
+            top=True)
+        kpAx.xaxis.set_label_position('top')
+        ax.set_xticklabels([])
+        kpAx.set_xticklabels([])
+        
+        ax = main.add_subplot(gs[5])
+        ai += 1
+        mkr = symbs[ai]
+        col = 'r'
+        amed = np.array([np.ma.median(SFH['ML'][band][idx==k]) for k in
+            range(nrad)])
+        amed = np.ma.masked_invalid(amed)
+        amask = ~np.ma.getmaskarray(amed)
+        if posterior:
+            ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)
+            ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)
+            ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,
+                linewidth=0.75, edgecolors='k', s=70, zorder=50,
+                label=rf"$M/L_{{{band}}}\ [{UTS.msun}/{UTS.lsun}]$")
+            for jp in range(nPost):
+                pamed = np.array([np.ma.median(maps['ML'][:, jp][idx==k]) for
+                    k in range(nrad)])
+                pamed = np.ma.masked_invalid(pamed)
+                ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,
+                    c=col, zorder=0)
+        else:
+            ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
+                marker=mkr, mfc=col, mew=0.75, mec='k', ecolor=col, ms=12,
+                label=rf"$M/L_{{{band}}}\ [{UTS.msun}/{UTS.lsun}]$",
+                zorder=50)
+            aerr = np.array([np.ma.std(SFH['ML'][band][idx==k]) for k in
+                range(nrad)])/2.
+            ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
+                amed[amask]-aerr[amask], alpha=0.1, color=col)
+        ax.set_xlim(right=rade.max()*1.15)
+        ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')
+        ax.set_ylabel(rf'$M/L_{{{band}}}$')
+        kpAx = ax.twiny()
+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *
+            1e-3))
+        # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")
+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,
+            top=True)
+        kpAx.xaxis.set_label_position('top')
+        kpAx.set_xticklabels([])
+
+        main.savefig(mDir/f"afh_elements_radial_SN{SN:02d}.png", format='png')
         plt.close('all')
 
 # ------------------------------------------------------------------------------
 
-def showPlots(galaxy, aper, SN=100, full=True, clabels=None,
-    pplots=['input', 'spec', 'corn', 'post', 'trace']):
+def showPlots(galaxy, apers, SN=100, full=True, clabels=None,
+    pplots=['input', 'spec', 'corn', 'post', 'trace'], dcName=''):
     frame = incf()
     funcArgs, _, _, funcValues = ingav(frame)
-    pNames = funcValues['pplots']
+    pplots = funcValues['pplots']
 
-    if not full: # Clip the spectral data if required
-        tEnd = 'trunc'
-    else:
-        tEnd = 'full'
-
-    ofn = curdir/'results'/f"{galaxy}_SN{SN:02d}_{aper:04d}.mcmc"
-    ifn = curdir/'indata'/f"{galaxy}_SN{SN:02d}_{aper:04d}.dat"
-    alf = Alf(ofn.parent/ofn.stem, mPath=ofn.parent)
-    alf.get_total_met()
-    alf.normalize_spectra()
-    alf.abundance_correct()
-    # alf.get_corrected_abundance_posterior()
+    mDir = curdir/f"{galaxy}{dcName}"
+    cfn = mDir/'config.xz'
+    CFG = au.Load.lzma(cfn)
 
     if isinstance(clabels, type(None)):
-        clabels = ['velz', 'sigma', 'h3', 'h4', 'logage', 'zh', 'IMF1', 'IMF2',]
+        clabels = ['velz', 'sigma', 'h3', 'h4', 'logage', 'zH', 'IMF1', 'IMF2',]
+    if int(CFG['imf_type']) == 0:
+        clabels.pop(clabels.index('IMF2'))
 
-    if 'input' in pNames:
-        print('Plotting input spectrum...')
+    for aper in np.atleast_1d(apers):
+        if 'aperture' in str(aper):
+            astr = 'aperture'
+        else:
+            astr = f"{aper:04d}"
+
+        if not full: # Clip the spectral data if required
+            tEnd = 'trunc'
+        else:
+            tEnd = 'full'
+        
+        gDir = curdir/f"{galaxy}{dcName}"
+
+        ofn = curdir/'results'/f"{galaxy}_SN{SN:02d}_{astr}.mcmc"
+        ifn = curdir/'indata'/f"{galaxy}_SN{SN:02d}_{astr}.dat"
+        alf = Alf(ofn.parent/ofn.stem, mPath=ofn.parent)
+        alf.get_total_met()
+        alf.normalize_spectra()
+        alf.abundance_correct()
+        # alf.get_corrected_abundance_posterior()
         waves, tPix, spec, err, weights, vel = au.readSpec(ifn)
-        fig = plt.figure(figsize=plt.figaspect(1./10.))
-        ax = fig.gca()
-        for wpair in waves:
-            ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4))[0]
-            ax.plot(tPix[ww], spec[ww], lw=0.4, c='r')
-        ax.fill_between(tPix, weights*spec.max(), alpha=0.2, facecolor='k',
-            zorder=0)
-        fig.savefig(curdir/galaxy/f"input_{aper:04d}")
-    if 'spec' in pNames:
-        print('Plotting spectral fit...')
-        alf.plot_model(curdir/galaxy/f"specFit_{aper:04d}.pdf")
-    if 'corn' in pNames:
-        print('Plotting corner...')
-        alf.plot_corner(curdir/galaxy/f"corner_{aper:04d}", clabels)
-    if 'post' in pNames:
-        print('Plotting posteriors...')
-        alf.plot_posterior(curdir/galaxy/f"posterior_{aper:04d}")
-    if 'trace' in pNames:
-        print('Plotting traces...')
-        alf.plot_traces(curdir/galaxy/f"traces_{aper:04d}.pdf")
-    plt.close('all')
+
+        if 'input' in pplots:
+            print('Plotting input spectrum...')
+            fig = plt.figure(figsize=plt.figaspect(1./10.))
+            ax = fig.gca()
+            for wpair in waves:
+                ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4))[0]
+                ax.plot(tPix[ww], spec[ww], lw=0.4, c='r')
+            ax.fill_between(tPix, weights*spec.max(), alpha=0.2, facecolor='k',
+                zorder=0)
+            ax.set_ylim(top=(spec*weights).max()*1.1)
+            fig.savefig(gDir/f"input_{astr}")
+        if 'spec' in pplots:
+            print('Plotting spectral fit...')
+            alf.plot_model(gDir/f"specFit_{astr}.pdf")
+
+            mwave, model, sinp, merr, _, mres = np.loadtxt(ofn.parent/\
+                f"{ofn.stem}.bestspec", unpack=True)
+            fig = plt.figure(figsize=plt.figaspect(3.0/10.))
+            gs = gridspec.GridSpec(2, 1, hspace=0, wspace=0)
+            ax = fig.add_subplot(gs[0, 0])
+            for wpair in waves:
+                ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4)
+                    )[0]
+                ax.plot(tPix[ww], spec[ww], lw=0.4, c='k')
+            ax.plot(mwave, model, lw=0.4, c='r')
+            ax.fill_between(tPix, (1.0-weights)*spec.max(), alpha=0.2,
+                facecolor='k', zorder=0)
+            ax.set_ylim(bottom=(spec*weights).min()*1.05,
+                top=(spec*weights).max()*1.05)
+            ax.set_xlim(min(mwave.min(), tPix.min())-20.,
+                max(mwave.max(), tPix.max())+20.)
+            ax.set_xticklabels([])
+            ax.set_ylabel('Flux')
+
+            ax = fig.add_subplot(gs[1, 0])
+            mask = (tPix >= (mwave.min()-1.)) & (tPix <= (mwave.max()+1.))
+            temp = tPix[mask][np.ma.getmaskarray(np.ma.masked_less(
+                weights[mask], 0.5))]
+            mwm = np.array([np.argmin(np.abs(tempi-mwave)) for tempi in temp])
+            newm = np.zeros_like(mwave)
+            newm[mwm] = 1
+            residual = np.ma.masked_array((sinp-model)/sinp*100., mask=newm)
+            ax.scatter(mwave, residual, marker='^', c='g', s=2)
+            ax.axhline(0.0, lw=0.5, ls='--', c='grey')
+            ax.fill_between(tPix, y1=-0.05*(1-weights), y2=0.05*(1-weights),
+                alpha=0.2, facecolor='k', zorder=0)
+            ax.set_xlabel(rf"Wavelength $[{UTS.angst}]$")
+            ax.set_ylabel(r'Residual $[\%]$')
+            ax.set_xlim(min(mwave.min(), tPix.min())-20.,
+                max(mwave.max(), tPix.max())+20.)
+            ax.set_ylim((-5, 5))
+            ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+            fig.savefig(gDir/f"spec_{astr}.pdf")
+        if 'corn' in pplots:
+            print('Plotting corner...')
+            alf.plot_corner(gDir/f"corner_{astr}", clabels)
+        if 'post' in pplots:
+            print('Plotting posteriors...')
+            alf.plot_posterior(gDir/f"posterior_{astr}")
+        if 'trace' in pplots:
+            print('Plotting traces...')
+            alf.plot_traces(gDir/f"traces_{astr}.pdf")
+        plt.close('all')
 
 # ------------------------------------------------------------------------------
 
@@ -1915,7 +2344,7 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
 
     frame = incf()
     funcArgs, _, _, funcValues = ingav(frame)
-    pNames = funcValues['pplots']
+    pplots = funcValues['pplots']
 
     VB = au.Load.lzma(vofs)
     try:
@@ -2052,7 +2481,7 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
         mome += [fr"h{j+3:d}"]
         units += ['']
 
-    if 'kin' in pNames:
+    if 'kin' in pplots:
         gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)
         fig = plt.figure(figsize=plt.figaspect(aspect)*1.5)
         # double the size equally
@@ -2106,7 +2535,7 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
         fig.savefig(curdir/galaxy/f"kinematics_{nMom:d}_SN{SN:02d}")
         plt.close('all')
 
-    if 'err' in pNames:
+    if 'err' in pplots:
         gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)
         fig = plt.figure(figsize=plt.figaspect(aspect)*1.5)
 
@@ -2169,7 +2598,7 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
         fig.savefig(curdir/galaxy/f"kinematicErrors_{nMom:d}_SN{SN:02d}")
         plt.close('all')
 
-    if 'hist' in pNames:
+    if 'hist' in pplots:
         gs = gridspec.GridSpec(rDim, cDim, hspace=0.16, wspace=0.)
         fig = plt.figure(figsize=plt.figaspect(rDim/float(cDim))*1.5)
 
@@ -2202,7 +2631,7 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
             ax.set_yticks([])
         fig.savefig(curdir/galaxy/f"kinematicErrorHists_{nMom:d}_SN{SN:02d}")
 
-    if 'symm' in pNames:
+    if 'symm' in pplots:
         if xLen < yLen:
             cDim = np.ceil(np.sqrt(nMom)).astype(int)
             rema = nMom % cDim

@@ -1,6 +1,6 @@
 PROGRAM SPEC_FROM_SUM
 
-  !takes a *sum file as input and returns the corresponding
+  !takes a *sum file as input and returns the corresponding 
   !model spectrum associated with min(chi^2)
 
   USE alf_vars; USE alf_utils
@@ -70,7 +70,7 @@ PROGRAM SPEC_FROM_SUM
      ENDIF
    ENDDO
   BACKSPACE(11)
-
+  
   READ(11,*) !burn the row containing the mean parameters
   READ(11,*) d1,posarr,mlx2
   CLOSE(11)
@@ -98,13 +98,13 @@ PROGRAM SPEC_FROM_SUM
 
   !pos%loghot = -8.0
   !pos%sigma = 0.0
-
+  
   !------------------------------------------------------------!
 
 
   !get the model spectrum
   CALL GETMODEL(pos,mspec)
-
+     
   !redshift the spectrum
   oneplusz = (1+pos%velz/clight*1E5)
   zmspec   = 0.0

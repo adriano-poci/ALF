@@ -22,7 +22,7 @@ export ALF_HOME=/fred/oz059/poci/alf/
 
 ### Compile clean version of `alf`
 cd ${ALF_HOME}src
-cp alf.f90.perm alf.f90
+cp alf.perm.f90 alf.f90
 # Remove prior placeholders on velz
 sed -i "/prlo%velz = -999./d" alf.f90
 sed -i "/prhi%velz = 999./d" alf.f90
@@ -45,7 +45,7 @@ echo "${aperKin[*]}" 2>&1 | tee -a "NGC3115/out_aperture.log"
 
 ### Compile modified velocity priors
 cd src
-cp alf.f90.perm alf.f90
+cp alf.perm.f90 alf.f90
 # `bc` arithmetic to define the lower and upper velocity bounds
 newVLo=$(bc -l <<< "(${aperKin[0]} - ${aperKin[1]}) - 5.0 * (${aperKin[2]} + ${aperKin[3]})")
 newVHi=$(bc -l <<< "(${aperKin[0]} + ${aperKin[1]}) + 5.0 * (${aperKin[2]} + ${aperKin[3]})")

@@ -7,7 +7,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem-per-cpu=3000
-#SBATCH --array=0-500
+#SBATCH --array=0-330
 #SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL
 #SBATCH --mail-user=adriano.poci@durham.ac.uk
 #SBATCH -o "/cosma5/data/durham/dc-poci1/alf/NGC4365/out.log" # Standard out to galaxy
@@ -23,5 +23,5 @@ module load cmake/3.18.1
 export ALF_HOME=/cosma5/data/durham/dc-poci1/alf/
 
 cd ${ALF_HOME}
-declare idx=$(printf %04d $((${SLURM_ARRAY_TASK_ID} + 1000)))
+declare idx=$(printf %04d $((${SLURM_ARRAY_TASK_ID} + 660)))
 mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} ./NGC4365/bin/alf.exe "NGC4365_SN100_${idx}" 2>&1 | tee -a "NGC4365/out_${idx}.log"

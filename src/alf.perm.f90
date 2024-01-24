@@ -4,19 +4,19 @@ PROGRAM ALF
   !  of a quiescent (>1 Gyr) stellar population
 
   ! Some important points to keep in mind:
-  ! 1. The prior bounds on the parameters are specified in set_pinit_priors.
+  ! 1. The prior bounds on the parameters are specified in set_pinit_priors. 
   !    Always make sure that the output parameters are not hitting a prior.
   ! 2. Make sure that the chain is converged in all relevant parameters
   !    by plotting the chain trace (parameter vs. chain step).
-  ! 3. Do not use this code blindly.  Fitting spectra is a
+  ! 3. Do not use this code blindly.  Fitting spectra is a 
   !    subtle art and the code can easily fool you if you don't know
-  !    what you're doing.  Make sure you understand *why* the code is
-  !    settling on a particular parameter value.
+  !    what you're doing.  Make sure you understand *why* the code is 
+  !    settling on a particular parameter value.  
   ! 4. Wavelength-dependent instrumental broadening can be included but
   !    will not be accurate in the limit of modest-large redshift b/c
   !    this is implemented in the model restframe at code setup time
   ! 5. The code can fit for the atmospheric transmission function but
-  !    this will only work if the input data are in the original
+  !    this will only work if the input data are in the original 
   !    observed frame; i.e., not de-redshifted.
   ! 6. I've found that Nwalkers=1024 and Nburn=~10,000 seems to
   !    generically yield well-converged solutions, but you should test
@@ -25,7 +25,7 @@ PROGRAM ALF
   ! To Do:
   ! 1. Let the Fe-peak elements track Fe in simple mode
   ! 2. Force both young and old components to have the same abundance pattern
-
+  
   !---------------------------------------------------------------------!
   !---------------------------------------------------------------------!
 
@@ -36,20 +36,20 @@ PROGRAM ALF
   IMPLICIT NONE
 
   !number of chain steps to print to file
-  INTEGER, PARAMETER :: nmcmc=500
+  INTEGER, PARAMETER :: nmcmc=5000
   !inverse sampling of the walkers for printing
   !NB: setting this to >1 currently results in errors in the *sum outputs
   INTEGER, PARAMETER :: nsample=1
   !length of chain burn-in
-  INTEGER, PARAMETER :: nburn=2000
+  INTEGER, PARAMETER :: nburn=10000
   !number of walkers
-  INTEGER, PARAMETER :: nwalkers=256 !512
+  INTEGER, PARAMETER :: nwalkers=512
   !save the chain outputs to file and the model spectra
   INTEGER, PARAMETER :: print_mcmc=1, print_mcmc_spec=0
   !option to re-initialize the parameters around the best-fit
   !solution and execute another round of burn-in
   INTEGER, PARAMETER :: moreburn=1
-
+  
   !start w/ powell minimization?
   INTEGER, PARAMETER  :: dopowell=0
   !Powell iteration tolerance
@@ -91,7 +91,7 @@ PROGRAM ALF
   INTEGER :: KILL=99,BEGIN=0
   LOGICAL :: wait=.TRUE.
   INTEGER, PARAMETER :: parentid=0
-
+ 
   !---------------------------------------------------------------!
   !---------------------------Setup-------------------------------!
   !---------------------------------------------------------------!
@@ -100,12 +100,12 @@ PROGRAM ALF
   fit_indices = 0
 
   !flag determining the level of complexity
-  !0=full, 1=simple, 2=super-simple.  See sfvars for details
+  !0=full, 1=simple, 2=super-simple; 3=semi-simple.
   fit_type = 0
 
   !fit h3 and h4 parameters
   fit_hermite = 1
-
+  
   !type of IMF to fit
   !0=1PL, 1=2PL, 2=1PL+cutoff, 3=2PL+cutoff, 4=non-parametric IMF
   imf_type = 0
@@ -125,15 +125,30 @@ PROGRAM ALF
 
   !turn on/off the use of an external tabulated M/L prior
   extmlpr = 0
-
+  
   !change the prior limits to kill off these parameters
   prhi%logm7g = -5.0
   prhi%teff   =  2.0
   prlo%teff   = -2.0
+  prhi%loghot = -4.0
+  prlo%loghot = -6.0
 
+  opos%sih          = 0.0653
+  opos%kh           = 0.1251
+  opos%vh           = 0.1621
+  opos%crh          = 0.0309
+  opos%mnh          = 0.0323
+  opos%coh          = 0.0612
+  opos%nih          = 0.1160
+  opos%cuh          = 0.4283
+  opos%srh          = -0.2893
+  opos%bah          = -0.5354
+  opos%euh          = 0.2719
+  
+!   prlo%velz = 8000
+!   prhi%velz = 12000
   prlo%velz = -999.
   prhi%velz = 999.
-
 
   !mass of the young component should always be sub-dominant
   prhi%logfy = -0.5
@@ -151,7 +166,7 @@ PROGRAM ALF
   IF (observed_frame.EQ.0.OR.fit_indices.EQ.1) THEN
      fit_trans     =  0
      prhi%logtrans = -5.0
-     prhi%logsky   = -5.0
+     prhi%logsky   = -5.0 
   ELSE
      fit_trans = 1
      !extra smoothing to the transmission spectrum.
@@ -159,7 +174,7 @@ PROGRAM ALF
      !in velocity space, set the parameter below to that extra smoothing
      smooth_trans = 0.0
   ENDIF
-
+ 
   IF (ssp_type.EQ.'cvd') THEN
      !always limit the [Z/H] range for CvD since
      !these models are actually only at Zsol
@@ -171,7 +186,7 @@ PROGRAM ALF
      ENDIF
   ENDIF
 
-  IF (fit_type.EQ.1.OR.fit_type.EQ.2) mwimf=1
+  IF (fit_type.NE.0) mwimf=1
 
   !---------------------------------------------------------------!
 
@@ -200,14 +215,14 @@ PROGRAM ALF
 
   IF (taskid.EQ.parentid) THEN
      !write some important variables to screen
-     WRITE(*,*)
-     WRITE(*,'(" ************************************")')
+     WRITE(*,*) 
+     WRITE(*,'(" ************************************")') 
      IF (fit_indices.EQ.1) THEN
         WRITE(*,'(" ***********Index Fitter*************")')
      ELSE
         WRITE(*,'(" **********Spectral Fitter***********")')
      ENDIF
-     WRITE(*,'(" ************************************")')
+     WRITE(*,'(" ************************************")') 
      WRITE(*,'("   ssp_type  =",A4)') ssp_type
      WRITE(*,'("   fit_type  =",I2)') fit_type
      WRITE(*,'("   imf_type  =",I2)') imf_type
@@ -215,7 +230,7 @@ PROGRAM ALF
      WRITE(*,'("fit_two_ages =",I2)') fit_two_ages
      IF (imf_type.EQ.4) &
           WRITE(*,'("   nonpimf   =",I2)') nonpimf_alpha
-     WRITE(*,'("  obs_frame  =",I2)') observed_frame
+     WRITE(*,'("  obs_frame  =",I2)') observed_frame 
      WRITE(*,'("      mwimf  =",I2)') mwimf
      WRITE(*,'("  age-dep Rf =",I2)') use_age_dep_resp_fcns
      WRITE(*,'("    Z-dep Rf =",I2)') use_z_dep_resp_fcns
@@ -224,18 +239,18 @@ PROGRAM ALF
      WRITE(*,'("  Nchain     = ",I6)') nmcmc
      WRITE(*,'("  Ncores     = ",I6)') ntasks
      WRITE(*,'("  filename   = ",A)') TRIM(file)//TRIM(tag)
-     WRITE(*,'(" ************************************")')
+     WRITE(*,'(" ************************************")') 
      CALL DATE_AND_TIME(TIME=time)
      CALL DTIME(dumt,time2)
-     WRITE(*,*)
+     WRITE(*,*) 
      WRITE(*,*) 'Start Time '//time(1:2)//':'//time(3:4)
-
+     
   ENDIF
 
   !read in the data and wavelength boundaries
   CALL READ_DATA(file,sigma_indx,velz_indx)
 
-
+  
   IF (fit_indices.EQ.1) THEN
 
      !fold in the approx data sigma into the "instrumental"
@@ -255,7 +270,7 @@ PROGRAM ALF
      prhi%logm7g         = -5.0
      prhi%teff           =  2.0
      prlo%teff           = -2.0
-     !we dont use velocities or dispersions here, so this
+     !we dont use velocities or dispersions here, so this 
      !should be unnecessary, but haven't tested turning them off yet.
      prlo%velz           = -10.
      prhi%velz           =  10.
@@ -326,11 +341,11 @@ PROGRAM ALF
   CALL STR2ARR(1,prlo,prloarr)   !str->arr
   CALL STR2ARR(1,prhi,prhiarr)   !str->arr
 
-
+  
   ! The worker's only job is to calculate the value of a function
   ! after receiving a parameter vector.
   IF (taskid.NE.parentid) THEN
-
+     
      ! Start event loop
      DO WHILE (wait)
 
@@ -345,7 +360,7 @@ PROGRAM ALF
         IF ((received_tag.EQ.KILL).OR.(npos.EQ.0)) EXIT
         CALL MPI_RECV(mpiposarr(1,1), npos*npar, MPI_DOUBLE_PRECISION, &
              parentid, MPI_ANY_TAG, MPI_COMM_WORLD, status, ierr)
-
+   
         IF (taskid.EQ.1.AND.test_time.EQ.1) THEN
            CALL DATE_AND_TIME(TIME=time)
            WRITE(*,*) '1 Time '//time(1:2)//':'//time(3:4)//':'&
@@ -362,7 +377,7 @@ PROGRAM ALF
            WRITE(*,*) '2 Time '//time(1:2)//':'//time(3:4)//':'&
                 //time(5:9),npos,taskid
         ENDIF
-
+             
         !Send it back to the parent
         CALL MPI_SEND(lp_mpi(1), npos, MPI_DOUBLE_PRECISION, &
              parentid, BEGIN, MPI_COMM_WORLD, ierr)
@@ -370,17 +385,17 @@ PROGRAM ALF
      ENDDO
 
   ENDIF
-
+ 
   !this is the parent process
   IF (taskid.EQ.parentid) THEN
-
+ 
      !for testing
      IF (1.EQ.0) THEN
         tpos%logage = 1.143
         tpos%imf1   = 3.32
         tpos%imf2   = 2.76
         tpos%imf3   = 0.08
-
+        
         CALL GETMODEL(tpos,mspecmw,mw=1)     !get spectrum for MW IMF
         CALL GETM2L(lam,mspecmw,tpos,m2lmw,mw=1) !compute M/L_MW
         write(*,'(A10,2F7.2)') 'M/L(MW)=', m2lmw(1:2)
@@ -404,10 +419,10 @@ PROGRAM ALF
         !make an initial estimate of the redshift
         IF (file(1:4).EQ.'cdfs'.OR.file(1:5).EQ.'legac') THEN
            WRITE(*,*) 'Setting initial cz to 0.0'
-           velz = 0.0
+           velz = 0.0 
         ELSE IF (file(1:4).EQ.'df44') THEN
            velz = 6280.00
-        ELSE
+        ELSE 
            WRITE(*,*) ' Fitting cz...'
            velz = getvelz()
            IF (velz.LT.prlo%velz.OR.velz.GT.prhi%velz) THEN
@@ -418,7 +433,7 @@ PROGRAM ALF
         opos%velz = velz
         WRITE(*,'("    cz= ",F7.1," (z=",F6.3,")")') &
              opos%velz, opos%velz/3E5
-
+        
      ENDIF
 
      CALL STR2ARR(1,opos,oposarr)   !str->arr
@@ -430,8 +445,8 @@ PROGRAM ALF
      !---------------------------------------------------------------!
      !---------------------Powell minimization-----------------------!
      !---------------------------------------------------------------!
-
-     IF (dopowell.EQ.1) THEN
+     
+     IF (dopowell.EQ.1) THEN 
 
         WRITE(*,*) ' Running Powell...'
         powell_fitting = 1
@@ -453,19 +468,19 @@ PROGRAM ALF
            ENDIF
         ENDDO
         powell_fitting = 0
-
+        
         !use the best-fit Powell position for the first MCMC position
         CALL STR2ARR(2,opos,bposarr) !arr->str
-
+        
         WRITE(*,'("    best velocity: ",F7.1)') opos%velz
         WRITE(*,'("    best sigma:    ",F6.1)') opos%sigma
         WRITE(*,'("    best age:      ",F6.1)') 10**opos%logage
         WRITE(*,'("    best [Z/H]:    ",F6.1)') opos%zh
-
+        
      ENDIF
-
+     
      IF (maskem.EQ.1) THEN
-        !now that we have a good guess of the redshift and velocity dispersion,
+        !now that we have a good guess of the redshift and velocity dispersion, 
         !mask out regions where emission line contamination may be a problem
         !In full mode, the default is to actually *fit* for emissions lines.
         CALL MASKEMLINES(opos%velz,opos%sigma)
@@ -477,14 +492,27 @@ PROGRAM ALF
 
      WRITE(*,*) ' Running emcee...'
      CALL FLUSH()
-
+     
      !initialize the walkers
      DO j=1,nwalkers
-
+        
         !random initialization of each walker
         CALL SET_PINIT_PRIORS(opos,prlo,prhi,velz=velz)
 
         CALL STR2ARR(1,opos,pos_emcee_in(:,j))
+
+        pos_emcee_in(11, :) = 0.0653 ! sih
+        pos_emcee_in(12, :) = 0.1251 ! kh
+        pos_emcee_in(15, :) = 0.1621 ! vh
+        pos_emcee_in(16, :) = 0.0309 ! crh
+        pos_emcee_in(17, :) = 0.0323 ! mnh
+        pos_emcee_in(18, :) = 0.0612 ! coh
+        pos_emcee_in(19, :) = 0.1160 ! nih
+        pos_emcee_in(20, :) = 0.4283 ! cuh
+        pos_emcee_in(21, :) = -0.2893 ! srh
+        pos_emcee_in(22, :) = -0.5354 ! bah
+        pos_emcee_in(23, :) = 0.2719 ! euh
+
 
         IF (dopowell.EQ.1) THEN
            !use the best-fit position from Powell, with small
@@ -505,7 +533,7 @@ PROGRAM ALF
 
         !Compute the initial log-probability for each walker
         lp_emcee_in(j) = -0.5*func(pos_emcee_in(:, j))
-
+   
         !check for initialization errors
         IF (-2.*lp_emcee_in(j).GE.huge_number/2.) THEN
            WRITE(*,*) 'ALF ERROR: initial lnp out of bounds!', j
@@ -528,6 +556,17 @@ PROGRAM ALF
              lp_emcee_in,pos_emcee_out,lp_emcee_out,accept_emcee,ntasks-1)
         pos_emcee_in = pos_emcee_out
         lp_emcee_in  = lp_emcee_out
+        pos_emcee_in(11, :) = 0.0653 ! sih
+        pos_emcee_in(12, :) = 0.1251 ! kh
+        pos_emcee_in(15, :) = 0.1621 ! vh
+        pos_emcee_in(16, :) = 0.0309 ! crh
+        pos_emcee_in(17, :) = 0.0323 ! mnh
+        pos_emcee_in(18, :) = 0.0612 ! coh
+        pos_emcee_in(19, :) = 0.1160 ! nih
+        pos_emcee_in(20, :) = 0.4283 ! cuh
+        pos_emcee_in(21, :) = -0.2893 ! srh
+        pos_emcee_in(22, :) = -0.5354 ! bah
+        pos_emcee_in(23, :) = 0.2719 ! euh
         IF (i.EQ.nburn/4.*1) THEN
            WRITE (*,'(A)',advance='no') ' ...25%'
            CALL FLUSH()
@@ -546,10 +585,10 @@ PROGRAM ALF
 
 
      !burn-in V2
-     IF (moreburn.EQ.1) THEN
+     IF (moreburn.EQ.1) THEN 
 
-        ml    = MAXLOC(lp_emcee_in,1)
-        bposarr  = pos_emcee_in(:,ml)
+        ml    = MAXLOC(lp_emcee_in,1)    
+        bposarr  = pos_emcee_in(:,ml) 
 
         DO j=1,nwalkers
            DO i=1,npar
@@ -561,11 +600,11 @@ PROGRAM ALF
               IF (pos_emcee_in(i,j).GE.prhiarr(i)) &
                    pos_emcee_in(i,j)=prhiarr(i)-wdth
            ENDDO
-
+           
            !Compute the initial log-probability for each walker
            lp_emcee_in(j) = -0.5*func(pos_emcee_in(:, j))
         ENDDO
-
+        
 
         WRITE(*,*) '   burning in (V2)...'
         WRITE(*,'(A)',advance='no') '      Progress:'
@@ -574,6 +613,17 @@ PROGRAM ALF
                 lp_emcee_in,pos_emcee_out,lp_emcee_out,accept_emcee,ntasks-1)
            pos_emcee_in = pos_emcee_out
            lp_emcee_in  = lp_emcee_out
+           pos_emcee_in(11, :) = 0.0653 ! sih
+           pos_emcee_in(12, :) = 0.1251 ! kh
+           pos_emcee_in(15, :) = 0.1621 ! vh
+           pos_emcee_in(16, :) = 0.0309 ! crh
+           pos_emcee_in(17, :) = 0.0323 ! mnh
+           pos_emcee_in(18, :) = 0.0612 ! coh
+           pos_emcee_in(19, :) = 0.1160 ! nih
+           pos_emcee_in(20, :) = 0.4283 ! cuh
+           pos_emcee_in(21, :) = -0.2893 ! srh
+           pos_emcee_in(22, :) = -0.5354 ! bah
+           pos_emcee_in(23, :) = 0.2719 ! euh
            IF (i.EQ.nburn/4.*1) THEN
               WRITE (*,'(A)',advance='no') ' ...25%'
               CALL FLUSH()
@@ -589,14 +639,14 @@ PROGRAM ALF
         ENDDO
         WRITE (*,'(A)') '...100%'
         CALL FLUSH()
-
+        
      END IF
 
 
-
+     
      !Run a production chain
      WRITE(*,*) '   production run...'
-
+     
      IF (print_mcmc.EQ.1) THEN
         !open output file
         OPEN(12,FILE=TRIM(ALF_HOME)//TRIM(OUTDIR)//&
@@ -604,17 +654,30 @@ PROGRAM ALF
      ENDIF
 
      DO i=1,nmcmc
-
+ 
         CALL EMCEE_ADVANCE_MPI(npar,nwalkers,2.d0,pos_emcee_in,&
              lp_emcee_in,pos_emcee_out,lp_emcee_out,accept_emcee,ntasks-1)
         pos_emcee_in = pos_emcee_out
         lp_emcee_in  = lp_emcee_out
+		
+        pos_emcee_in(11, :) = 0.0653 ! sih
+        pos_emcee_in(12, :) = 0.1251 ! kh
+        pos_emcee_in(15, :) = 0.1621 ! vh
+        pos_emcee_in(16, :) = 0.0309 ! crh
+        pos_emcee_in(17, :) = 0.0323 ! mnh
+        pos_emcee_in(18, :) = 0.0612 ! coh
+        pos_emcee_in(19, :) = 0.1160 ! nih
+        pos_emcee_in(20, :) = 0.4283 ! cuh
+        pos_emcee_in(21, :) = -0.2893 ! srh
+        pos_emcee_in(22, :) = -0.5354 ! bah
+        pos_emcee_in(23, :) = 0.2719 ! euh
+		
         totacc       = totacc + SUM(accept_emcee)
-
+        
         DO j=1,nwalkers,nsample
-
+           
            CALL STR2ARR(2,opos,pos_emcee_in(:,j)) !arr->str
-
+           
            !turn off various parameters for computing M/L
            opos%logemline_h    = -8.0
            opos%logemline_oii  = -8.0
@@ -635,7 +698,7 @@ PROGRAM ALF
               m2l   = m2lmw
               mspec = mspecmw
            ENDIF
-
+           
            !save each model spectrum
            !mspec_mcmc(1+j+(i-1)*nwalkers/nsample,:) = mspec
 
@@ -647,32 +710,34 @@ PROGRAM ALF
            IF (fit_type.EQ.1) THEN
               pos_emcee_in(nparsimp+1:,j) = 0.0
            ELSE IF (fit_type.EQ.2) THEN
-              pos_emcee_in(npowell+1:,j) = 0.0
+              pos_emcee_in(npowell+1:,j) = 0.0 
+           ELSE IF (fit_type.EQ.3) THEN
+              pos_emcee_in(nparsemisimp+1:,j) = 0.0
            ENDIF
-
+           
            IF (print_mcmc.EQ.1) THEN
               !write the chain element to file
               WRITE(12,'(ES12.5,1x,99(F11.4,1x))') &
                    -2.0*lp_emcee_in(j),pos_emcee_in(:,j),m2l,m2lmw
            ENDIF
-
+           
            !keep the model with the lowest chi2
            IF (-2.0*lp_emcee_in(j).LT.minchi2) THEN
               bposarr = pos_emcee_in(:,j)
               minchi2 = -2.0*lp_emcee_in(j)
            ENDIF
-
+           
            CALL UPDATE_RUNTOT(runtot,pos_emcee_in(:,j),m2l,m2lmw)
-
+           
            !save each chain element
            mcmcpar(1:npar,j+(i-1)*nwalkers/nsample) = pos_emcee_in(:,j)
            mcmcpar(npar+1:npar+nfil,j+(i-1)*nwalkers/nsample)        = m2l
            mcmcpar(npar+nfil+1:npar+2*nfil,j+(i-1)*nwalkers/nsample) = m2lmw
 
         ENDDO
-
+        
      ENDDO
-
+     
      IF (print_mcmc.EQ.1) CLOSE(12)
 
      !save the best position to the structure
@@ -689,19 +754,19 @@ PROGRAM ALF
         cl84(i)   = sortpos(INT(0.840*nwalkers*nmcmc/nsample))
         cl97p5(i) = sortpos(INT(0.975*nwalkers*nmcmc/nsample))
      ENDDO
-
+          
      CALL DATE_AND_TIME(TIME=time)
      CALL DTIME(dumt,time2)
      WRITE(*,*) 'End Time   '//time(1:2)//':'//time(3:4)
      WRITE(*,'(" Elapsed Time: ",F5.2," hr")') time2/3600.
-     WRITE(*,*)
+     WRITE(*,*) 
      WRITE(*,'("  facc: ",F6.3)') REAL(totacc)/REAL(nmcmc*nwalkers)
 
 
      !---------------------------------------------------------------!
      !--------------------Write results to file----------------------!
      !---------------------------------------------------------------!
-
+     
      !write a binary file of the production chain spectra
      IF (print_mcmc_spec.EQ.1) THEN
       !  mspec_mcmc(1,:) = lam
@@ -719,7 +784,7 @@ PROGRAM ALF
      !NB: the model written to file has the lowest chi^2
      fret = func(bposarr,spec=mspec,funit=13)
      CLOSE(13)
-
+ 
      !write mean of the posterior distributions
      OPEN(14,FILE=TRIM(ALF_HOME)//TRIM(OUTDIR)//&
           TRIM(file)//TRIM(tag)//'.sum',STATUS='REPLACE')
@@ -730,7 +795,7 @@ PROGRAM ALF
      WRITE(14,'("#  fit_hermite =",I2)') fit_hermite
      WRITE(14,'("# fit_two_ages =",I2)') fit_two_ages
      WRITE(14,'("#     nonpimf  =",I2)') nonpimf_alpha
-     WRITE(14,'("#   obs_frame  =",I2)') observed_frame
+     WRITE(14,'("#   obs_frame  =",I2)') observed_frame 
      WRITE(14,'("#    fit_poly  =",I2)') fit_poly
      WRITE(14,'("#       mwimf  =",I2)') mwimf
      WRITE(14,'("#   age-dep Rf =",I2)') use_age_dep_resp_fcns
@@ -743,7 +808,7 @@ PROGRAM ALF
      WRITE(14,'("#   Ncores     = ",I6)') ntasks
      WRITE(14,'("#   facc: ",F6.3)') REAL(totacc)/REAL(nmcmc*nwalkers)
      WRITE(14,'("#   rows: mean posterior, pos(chi^2_min), 1 sigma errors, '//&
-          '2.5%, 16%, 50%, 84%, 97.5% CL, lower priors, upper priors ")')
+          '2.5%, 16%, 50%, 84%, 97.5% CL, lower priors, upper priors ")') 
 
      !write mean of posteriors
      WRITE(14,'(ES12.5,1x,99(F11.4,1x))') bpos%chi2,runtot(2,:)/runtot(1,:)
@@ -769,7 +834,7 @@ PROGRAM ALF
      CLOSE(14)
 
      WRITE(*,*)
-     WRITE(*,'(" ************************************")')
+     WRITE(*,'(" ************************************")') 
 
      !break the workers out of their event loops so they can close
      CALL FREE_WORKERS(ntasks-1)
@@ -777,6 +842,6 @@ PROGRAM ALF
   ENDIF
 
   CALL MPI_FINALIZE(ierr)
-
+ 
 
 END PROGRAM ALF

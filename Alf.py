@@ -26,6 +26,7 @@ v1.1:   Corrected bug when using `astropy` `hstack` changes the column names
             and `plot_traces`. 29 July 2022
 v1.2:   Manually handle notch filter (and other masked regions) in spectra in
             `normalize_spectra`. 31 August 2022
+v1.3:   Don't plot the model over the masked regions. 10 July 2023
 """
 
 import sys, pdb
@@ -44,16 +45,16 @@ curdir = plp.Path(__file__).parent
 
 class Alf(object):
     def __init__(self, outpath, mPath=None):
-        self.outpath = outpath
-        self.outfile = self.outpath.stem
+        self.outpath = outpath.parent
+        self.outfile = outpath.stem
         if isinstance(mPath, type(None)):
             mPath = curdir
         self.mPath = plp.Path(mPath)
         self.nsample = None
         self.spectra = None
 
-        self.mcmc = np.loadtxt(self.mPath/f"{self.outfile}.mcmc")
-        with open(self.mPath/f"{self.outfile}.sum", 'r') as fil:
+        self.mcmc = np.loadtxt(self.outpath/f"{self.outfile}.mcmc")
+        with open(self.outpath/f"{self.outfile}.sum", 'r') as fil:
             sum = fil.readlines()
         hdr = []
         results = []
@@ -134,7 +135,7 @@ class Alf(object):
         doesn't exist
         """
         #try:
-        model = np.loadtxt(self.mPath/f"{self.outfile}.bestspec")
+        model = np.loadtxt(self.outpath/f"{self.outfile}.bestspec")
         #except:
         #    warning = ('Do not have the *.bestspec file')
         #    warnings.warn(warning)
@@ -149,7 +150,7 @@ class Alf(object):
         self.spectra = data
 
         try:
-            model2 = np.loadtxt(self.mPath/f"{self.outfile}.bestspec2")
+            model2 = np.loadtxt(self.outpath/f"{self.outfile}.bestspec2")
             mod2 = dict()
             mod2['wave'] = model2[:, 0]
             #model['wave'] = m[:,0]/(1.+self.results['velz'][5]*1e3/constants.c)
@@ -196,6 +197,7 @@ class Alf(object):
         min_ = min(self.spectra['wave'])
         max_ = max(self.spectra['wave'])
         num  = int((max_ - min_)/chunks) + 1
+        self.spectra['smask'] = smask
 
         for i in range(num):
             kd = ((self.spectra['wave'] >= min_ + chunks*i) &
@@ -384,9 +386,11 @@ class Alf(object):
                     (self.spectra['wave'] <= min_ + chunks*(i+1)))
                 ax1.plot(self.spectra['wave'][j],
                     self.spectra['d_flux_norm'][j], 'k-', lw=2, label='Data')
+                
+                mmodel = np.ma.masked_array(self.spectra['m_flux_norm'][j],
+                    ~self.spectra['smask'][j])
 
-                ax1.plot(self.spectra['wave'][j],
-                    self.spectra['m_flux_norm'][j], color='#E32017', lw=2,
+                ax1.plot(self.spectra['wave'][j], mmodel, color='#E32017', lw=2,
                     label='Model')
                 ax1.legend(frameon=False)
 

@@ -33,6 +33,11 @@ v1.6:   Break the spectra scripts into smaller chunks. 26 October 2022
 v1.7:   Fixed bug in `getM2L` by using `RZ.shiftFnu` to compute the model
             magnitude as well. 6 December 2022
 v1.8:   Run `make clean` before `make` in `alfWrite`. 8 March 2023
+v1.9:   Added `oneSpec` to analyse a given spectral fit in isolation. 7 July
+            2023
+v1.10:  Pass `dcName` to `alf_aperRead.py` in `alfWrite`. 14 July 2023
+v1.11:  Added much-improved `spec` figure to `oneSpec`. 16 November 2023
+v1.12:  Vectorised `getM2L` and `getMass`. 20 December 2023
 """
 from __future__ import print_function, division
 
@@ -54,24 +59,29 @@ from astropy.table import Table, unique as atuni
 import multiprocessing as mp
 from scipy.special import erf as sserf
 from scipy.interpolate import interp1d
+import matplotlib.gridspec as gridspec
+from matplotlib import ticker
 from functools import partial
 from tqdm import tqdm
 import subprocess as sp
 from inspect import getargvalues as ingav, currentframe as incf
 from svo_filters import svo
 
-from alf.scripts import read_alf as ra
+from Alf import Alf
 
 # Custom modules
 from dynamics.IFU.Galaxy import Mge, Schwarzschild
 from dynamics.IFU.FileIO import Load, Write, Read
-from dynamics.IFU.Constants import Constants, Units
+from dynamics.IFU.Constants import Constants, UnitStr
 from cythonModules import C_utils as Cu
 from spectres import spectres
 
 from plotbin.sauron_colormap import register_sauron_colormap as srsc
 
 curdir = plp.Path(__file__).parent
+
+UTS = UnitStr()
+
 # ------------------------------------------------------------------------------
 
 def _ddir():
@@ -134,10 +144,16 @@ def prepSpec(galaxy, SN, instrument='MUSE', wRange=[4000, 10000], full=True,
             np.column_stack((tPix, binSpec[:, binn], binStat[:, binn],
             weights, velRes)), fmt='%20.10f',
             header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")
-    np.savetxt(curdir/'indata'/f"{galaxy}_SN{SN:02d}_aperture.dat",
-        np.column_stack((tPix, VO['aperSpec'], VO['aperStat'],
-        weights, velRes)), fmt='%20.10f',
-        header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")
+    if 'NGC4365' in galaxy:
+        np.savetxt(curdir/'indata'/f"{galaxy}_SN{SN:02d}_aperture.dat",
+            np.column_stack((tPix, binSpec[:, 0], binStat[:, 0],
+            weights, velRes)), fmt='%20.10f',
+            header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")
+    else:
+        np.savetxt(curdir/'indata'/f"{galaxy}_SN{SN:02d}_aperture.dat",
+            np.column_stack((tPix, VO['aperSpec'], VO['aperStat'],
+            weights, velRes)), fmt='%20.10f',
+            header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")
 
 # ------------------------------------------------------------------------------
 
@@ -148,30 +164,6 @@ def readSpec(afn):
     waves = np.array([head.lstrip('#').strip().split() for head in header],
         dtype=float)
     return waves, tPix, spec, err, weights, vel
-
-# ------------------------------------------------------------------------------
-
-def alfRead():
-    outs = np.sort([xi for xi in plp.Path('results').glob('ngc4365_*.mcmc')])
-    nSpat = len(outs)
-    apers = np.array([int(out.stem.split('_')[-1]) for out in outs])
-    sore = np.argsort(apers)
-    outs = outs[sore]
-    imfs = []
-    for j, out in tqdm(enumerate(outs), total=nSpat):
-        alf = ra.Alf(out.parent/out.stem)
-        imf = pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.0),
-            slopes=(alf.results['IMF1'].data[0], alf.results['IMF2'].data[0],
-            2.3))
-        imfs += [imf]
-    xiTop = np.array(list(map(lambda imf: imf.integrate(
-        mlow=0.2, mhigh=0.5), imfs)))
-    xiBot = np.array(list(map(lambda imf: imf.integrate(
-        mlow=0.2, mhigh=1.0), imfs)))
-
-    VO = Load.lzma(dDir.parent/'pxf'/'NGC4365'/'voronoi_SN100_full.xz')
-    INF = Load.lzma(dDir.parent/'muse'/'tri_models'/'fin4365'/'infil.xz')
-    pdb.set_trace()
 
 # ------------------------------------------------------------------------------
 
@@ -282,7 +274,7 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
     sStr += f'export ALF_HOME={curdir}{plp.os.sep}\n\n'
     sStr += u'### Compile clean version of `alf`\n'
     sStr += u'cd ${ALF_HOME}src\n'
-    sStr += u'cp alf.f90.perm alf.f90\n'
+    sStr += u'cp alf.perm.f90 alf.f90\n'
     sStr += u'# Remove prior placeholders on velz\n'
     sStr += u'sed -i "/prlo%velz = -999./d" alf.f90\n'
     sStr += u'sed -i "/prhi%velz = 999./d" alf.f90\n'
@@ -296,7 +288,8 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
     sStr += u"Ipy='ipython --pylab --pprint --autoindent'\n"
     sStr += f"galax='{galaxy}'\n"
     sStr += f"SN={SN:d}\n"
-    sStr += u'pythonOutput=$($Ipy alf_aperRead.py -- -g "$galax" -sn "$SN")\n'
+    sStr += u'pythonOutput=$($Ipy alf_aperRead.py -- -g "$galax" -sn "$SN" '\
+        f'-dc "{dcName}")\n'
     sStr += f'echo "$pythonOutput" 2>&1 | tee -a '\
         f'"{galaxy}{dcName}/out_aperture.log"\n'
     if priors:
@@ -308,7 +301,7 @@ def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),
             f'"{galaxy}{dcName}/out_aperture.log"\n\n'
         sStr += u'### Compile modified velocity priors\n'
         sStr += u'cd src\n'
-        sStr += u'cp alf.f90.perm alf.f90\n'
+        sStr += u'cp alf.perm.f90 alf.f90\n'
         sStr += u'# `bc` arithmetic to define the lower and upper velocity bounds\n'
         sStr += u'newVLo=$(bc -l <<< "(${aperKin[0]} - ${aperKin[1]}) - '\
             u'5.0 * (${aperKin[2]} + ${aperKin[3]})")\n'
@@ -394,6 +387,8 @@ def getMass(mto, imf1, imf2, imfTop):
     mlo   =   0.08 # Low-mass cut-off assumed
     imfhi = 100.0  # Upper mass for integration
 
+    mto, imf1, imf2, imfTop = map(np.atleast_1d, [mto, imf1, imf2, imfTop])
+
     # normalize the weights so that 1 Msun formed at t=0
     # This comes from defining the three-part piecewise linear IMF,
     # N(m)=-X log(m) + c,
@@ -410,13 +405,15 @@ def getMass(mto, imf1, imf2, imfTop):
     # and is age dependent.
 
     # if mto < m3, include whole of m2<m<m3
-    if mto < m3:
-        getmass += m2**(-imf1+imf2)*(mto**(-imf2+2)-m2**(-imf2+2))/(-imf2+2)
-
+    mtl = np.where(mto < m3)
+    mtg = np.where(mto >= m3)
+    getmass[mtl] += m2**(-imf1[mtl]+imf2[mtl])*(mto[mtl]**(-imf2[mtl]+2)-m2**(
+        -imf2[mtl]+2))/(-imf2[mtl]+2)
     # otherwise, add the two sections up to mto
-    else:
-        getmass += m2**(-imf1+imf2)*(m3**(-imf2+2)-m2**(-imf2+2))/(-imf2+2) +\
-            m2**(-imf1+imf2)*(mto**(-imfTop+2)-m3**(-imfTop+2))/(-imfTop+2)
+    getmass[mtg] += m2**(-imf1[mtg]+imf2[mtg])*(m3**(-imf2[mtg]+2)-m2**(
+        -imf2[mtg]+2))/(-imf2[mtg]+2) +\
+        m2**(-imf1[mtg]+imf2[mtg])*(mto[mtg]**(-imfTop[mtg]+2)-m3**(
+        -imfTop[mtg]+2))/(-imfTop[mtg]+2)
 
     # Normalise
     getmass = getmass/imfnorm
@@ -441,21 +438,19 @@ def getMass(mto, imf1, imf2, imfTop):
     # contribution based on the NUMBER of stars, so uses the NUMBER integral.
 
     # If mto lt m3, then must consider WD stars in two segments, up to nslim.
+    getmass[mtl] += 0.48*m2**(-imf1[mtl]+imf2[mtl])*(nslim**(-imfTop[mtl]+1)
+        -m3**(-imfTop[mtl]+1))/(-imfTop[mtl]+1)/imfnorm[mtl]
+    getmass[mtl] += 0.48*m2**(-imf1[mtl]+imf2[mtl])*(m3**(-imf2[mtl]+1)
+        -mto[mtl]**(-imf2[mtl]+1))/(-imf2[mtl]+1)/imfnorm[mtl]
+    getmass[mtl] += 0.077*m2**(-imf1[mtl]+imf2[mtl])*(nslim**(-imfTop[mtl]+2)
+        -m3**(-imfTop[mtl]+2))/(-imfTop[mtl]+2)/imfnorm[mtl]
+    getmass[mtl] += 0.077*m2**(-imf1[mtl]+imf2[mtl])*(m3**(-imf2[mtl]+2)
+        -mto[mtl]**(-imf2[mtl]+2))/(-imf2[mtl]+2)/imfnorm[mtl]
     # Otherwise, only the upper segment.
-    if mto < m3:
-        getmass += 0.48*m2**(-imf1+imf2)*(nslim**(-imfTop+1)-m3**(-imfTop+1))/\
-            (-imfTop+1)/imfnorm
-        getmass += 0.48*m2**(-imf1+imf2)*(m3**(-imf2+1)-mto**(-imf2+1))/\
-            (-imf2+1)/imfnorm
-        getmass += 0.077*m2**(-imf1+imf2)*(nslim**(-imfTop+2)-m3**(-imfTop+2))/\
-            (-imfTop+2)/imfnorm
-        getmass += 0.077*m2**(-imf1+imf2)*(m3**(-imf2+2)-mto**(-imf2+2))/\
-            (-imf2+2)/imfnorm
-    else:
-        getmass += 0.48*m2**(-imf1+imf2)*(nslim**(-imfTop+1)-mto**(-imfTop+1))/\
-            (-imfTop+1)/imfnorm
-        getmass += 0.077*m2**(-imf1+imf2)*(nslim**(-imfTop+2)-mto**(-imfTop+2)
-            )/(-imfTop+2)/imfnorm
+    getmass[mtg] += 0.48*m2**(-imf1[mtg]+imf2[mtg])*(nslim**(-imfTop[mtg]+1)
+        -mto[mtg]**(-imfTop[mtg]+1))/(-imfTop[mtg]+1)/imfnorm[mtg]
+    getmass[mtg] += 0.077*m2**(-imf1[mtg]+imf2[mtg])*(nslim**(-imfTop[mtg]+2)
+        -mto[mtg]**(-imfTop[mtg]+2))/(-imfTop[mtg]+2)/imfnorm[mtg]
 
     return getmass
 
@@ -463,6 +458,9 @@ def getMass(mto, imf1, imf2, imfTop):
 
 def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',
         photFilt='WFPC2.F814W', **kwargs):
+    
+    logage, zh, imf1, imf2, imfTop = map(np.atleast_1d, [logage, zh, imf1, imf2,
+        imfTop])
 
     # Variables
     lsun   = 3.839e33 # Solar luminosity in erg/s
@@ -506,7 +504,7 @@ def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',
     tempMag = RZ.shiftFnu(nfWave, physSpec, photFilt=photFilt, **kwargs)
 
     if tempMag <= 0.0:
-        return 0.0
+        return np.full_like(0.0, imf1)
 
     else:
         # Read in solar spectrum and generate mag sun from filter curve
@@ -516,10 +514,9 @@ def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',
 
         mass2light = mass / 10.0**(2./5. * (solarMag-tempMag))
 
-        if mass2light > 100.0:
-            mass2light = 0.0
+        np.ma.masked_greater(mass2light, 100.)
 
-        return mass2light
+        return np.squeeze(mass2light)
 
 # ------------------------------------------------------------------------------
 
@@ -812,8 +809,7 @@ def deprojIS(sMGE, tMGE, nis=int(100), plot=True, bDir=curdir):
     if plot:
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
-        from matplotlib.gridspec import GridSpec as ggss
-        gs = ggss(3, 3)
+        gs = gridspec.GridSpec(3, 3)
         fig = plt.figure(figsize=plt.figaspect(1.))
         for i in range(9):
             ax = fig.add_subplot(gs[i], projection='3d')
@@ -1808,231 +1804,6 @@ def updateGal(galaxy):
 
 # ------------------------------------------------------------------------------
 
-def quickChi2(galaxy=None, mPath=None, key=None, bML=None, SN=100,
-    full=False, redraw=False):
-    r"""
-    This function compares the model and data by producing figures of relevant
-        quantities for a specific coordinate in the parameter space
-    Args
-    ----
-        galaxy (str): the galaxy name
-        mPath (str): the directory containing the input and output directories
-        key (str): an appropriately-formatted string containing part of the
-            filename of a specific model
-        nML (float): the M/L to analyse
-        SN (int): the S/N of the data
-        full (bool): toggles whether the full spectral range was used for the
-            spectral fitting
-        redraw (bool): toggles whether to read in all models
-    Returns
-    -------
-        bChiR (float): the chi^2 of the kinematic moments of the best-fitting
-            model
-        bBH (float): the black-hole mass of the best-fitting model
-        bQ (float): the q value of the best-fitting model
-        bP (float): the p value of the best-fitting model
-        bU (float): the u value of the best-fitting model
-        bDM (float): the dark-matter scaling of the best-fitting model
-        bML (float): the mass-to-light ratio of the best-fitting model
-        KINCHI (arr:float): the \chi^2 measurements for all models, of shape
-            `(N,)`
-        cData (arr:float): the positions in parameter-space of all models, of
-            shape `(N, nParam)`
-    """
-
-    if not mPath:
-        bDir = copy(curdir)
-    else:
-        bDir = curdir/'tri_models'/mPath
-
-    try:
-        INF = Load.lzma(bDir/'infil.xz')
-        nKin = int(INF['kin']['nbins'] * INF['nn']['nGH'])
-        qMin = np.min([INF['parameters']['tMGE'].q.min(),
-            INF['parameters']['sMGE'].q.min()])
-
-        Cfn = bDir/'chi2.csv'
-        Dfn = bDir/'chi2.dat'
-
-        mCoords, modDirs = _coordExtr(bDir, key=key)
-        nFiles = len(mCoords)
-        if (nFiles < 1) and (not Cfn.is_file()):
-            raise RuntimeError('No completed models.')
-        print(f"Models: {nFiles:04d}")
-
-        if not isinstance(key, type(None)):
-            KINCHI = np.empty(nFiles, dtype=float)
-            params = []
-            for ki, (lKey, mCoord) in enumerate(zip(modDirs, mCoords)):
-                kinChi2 = _nnProc(galaxy, mPath, lKey, method='comp')
-                KINCHI[ki] = kinChi2
-                # allCHI[ki,:] = allChi2
-                # CHI[ki] = chi2
-                params += [[kinChi2, *mCoord]]
-            chiR = KINCHI * nKin / np.nanmin(KINCHI)
-
-            params = np.asarray(params)
-            mDirs = np.asarray(mCoords)
-
-            if not isinstance(bML, type(None)):
-                sor = np.bitwise_or.reduce(np.apply_along_axis(
-                    lambda xn: np.isclose(xn, bML), 1, params), axis=1)
-            else:
-                sor = np.argsort(chiR)
-
-            chiR = chiR[sor]
-            KINCHI = KINCHI[sor]
-            mDirs = mDirs[sor, :]
-            params = params[sor, :]
-
-        elif redraw or not Cfn.is_file():
-            # CHI = np.empty(nFiles, dtype=float)
-            # allCHI = np.empty([nFiles, nGH], dtype=float)
-            KINCHI = np.empty(nFiles, dtype=float)
-            params = []
-            for ki, (lKey, mCoord) in enumerate(zip(modDirs, mCoords)):
-                kinChi2 = _nnProc(galaxy, mPath, lKey, method='comp')
-                KINCHI[ki] = kinChi2
-                # allCHI[ki,:] = allChi2
-                # CHI[ki] = chi2
-                params += [[kinChi2, *mCoord]]
-            chiR = KINCHI * nKin / np.nanmin(KINCHI)
-
-            params, pindx = np.unique(params, axis=0, return_index=True)
-
-            chiR = chiR[pindx]
-            KINCHI = KINCHI[pindx]
-            mDirs = np.take(mCoords, pindx, axis=0)
-            # params[:,0] = params[:,0]*nKin/np.nanmin(params[:,0])
-            nFiles = len(chiR)
-
-            # Write out outputs
-            symbs = ['' for ji in freez] # `freez` includes M/L
-            symbs[-2] = '+'
-            outC = ''
-            outD = ''
-            for fi in range(nFiles):
-                outC += f"{params[fi, 0]: <.5f},{chiR[fi]: <.9f},"+\
-                    ','.join([f"{ppi: <{symbs[si]}.7f}"
-                    for si, ppi in enumerate(params[fi, 1:])])+'\n'
-                outD += f"{params[fi, 0]: <15.5f} {chiR[fi]: <19.9f} "+\
-                    ''.join([f"{ppi: <{symbs[si]}12.7f}"
-                    for si, ppi in enumerate(params[fi, 1:])])+'\n'
-            oup = open(Cfn, 'w+')
-            oup.write(f"{nFiles:05d}\n")
-            oup.write(outC)
-            oup.close()
-            oup = open(Dfn, 'w+')
-            oup.write(f"{nFiles:05d}\n")
-            oup.write(outD)
-            oup.close()
-
-        else:
-            oup = open(Cfn, 'r+')
-            nDirs = int(oup.readline())
-            params = np.array([mp.strip().split(',') for mp in
-                oup.readlines()], dtype=float)
-            oup.close()
-            KINCHI = params[:, 0]
-            tempChiR = params[:, 1]
-            mDirs = params[:, 2:]
-            params = np.delete(params, 1, 1) # remove `chiR` column
-            nCFiles = KINCHI.size
-
-            MCKeys = np.array([_gridKey(*mCoord) for mCoord in mCoords])
-            MDKeys = np.array([_gridKey(*mCoord) for mCoord in mDirs])
-            tdCoords = np.setdiff1d(MCKeys, MDKeys)
-
-            print(f"New models: {tdCoords.size:04d}")
-
-            for lKey in tdCoords:
-                lKey = rReplace(lKey, keySep, os.sep, 1)
-                mCoord = [*_deetExtr(lKey).values()]
-                kinChi2 = _nnProc(galaxy, mPath, lKey, method='comp')
-                KINCHI = np.append(KINCHI, kinChi2)
-                # allCHI = np.append( allCHI, [allChi2], axis=0 )
-                # CHI = np.append( CHI, chi2 )
-                params = np.append(params, [[kinChi2, *mCoord]], axis=0)
-                mDirs = np.append(mDirs, [[*mCoord]], axis=0)
-
-            chiR = params[:, 0]*nKin/np.nanmin(params[:, 0])
-
-            params, pindx = np.unique(params, axis=0, return_index=True)
-
-            chiR = chiR[pindx]
-            KINCHI = KINCHI[pindx]
-            mDirs = np.take(mDirs, pindx, axis=0)
-            nFiles = params.shape[0]
-
-            # Write out outputs
-            symbs = ['' for ji in freez] # `freez` includes M/L
-            symbs[-2] = '+'
-            outC = ''
-            outD = ''
-            for fi in range(nFiles):
-                outC += f"{params[fi, 0]: <.5f},{chiR[fi]: <.9f},"+\
-                    ','.join([f"{ppi: <{symbs[si]}.7f}"
-                    for si, ppi in enumerate(params[fi, 1:])])+'\n'
-                outD += f"{params[fi, 0]: <15.5f} {chiR[fi]: <19.9f} "+\
-                    ''.join([f"{ppi: <{symbs[si]}12.7f}"
-                    for si, ppi in enumerate(params[fi, 1:])])+'\n'
-            oup = open(Cfn, 'w+')
-            oup.write(f"{nFiles:05d}\n")
-            oup.write(outC)
-            oup.close()
-            oup = open(Dfn, 'w+')
-            oup.write(f"{nFiles:05d}\n")
-            oup.write(outD)
-            oup.close()
-
-        # Corner data
-        cData = np.array(params[:, 1:]).T
-        bMC = mDirs[0]
-        bChi = KINCHI[0]
-        bChiR = chiR[0]
-        chiR = KINCHI*nKin/np.nanmin(KINCHI)
-        plotChi = (chiR - np.nanmin(chiR)) / np.sqrt(2.*nKin)
-        bBH, bQ, bP, bU, bDM, bDF, bML = bMC
-        bMKey = _gridKey(bBH, bQ, bP, bU, bDM, bDF)
-        bLKey = rReplace(_gridKey(bBH, bQ, bP, bU, bDM, bDF, bML),
-            keySep, plp.os.sep, 1)
-        oneSig = plotChi <= 1.
-        stderr = np.nanstd(params[oneSig, 1:], axis=0)
-        lls = dict(bh=dict(value=bBH, label=r'$\log_{10}(M_\bullet)$',
-                str='m_BH', ster=stderr[0]),
-            q=dict(value=bQ, label=r'$q$', str='Q', ster=stderr[1]),
-            p=dict(value=bP, label=r'$p$', str='P', ster=stderr[2]),
-            u=dict(value=bU, label=r'$u$', str='U', ster=stderr[3]),
-            dm=dict(value=bDM, label=r'$C_{\rm DM}$', str='C_DM',
-                ster=stderr[4]),
-            df=dict(value=bDF, str='f_DM', label=\
-                r'$\log_{10}\left[f_{\rm DM}\left(r_{200}\right)\right]$',
-                ster=stderr[5]),
-            ml=dict(value=bML, label=r'$\Upsilon$', str='M/L', ster=stderr[6]))
-
-        bStr = ''.join([
-            f"{'Best': <5s}{lls[fs]['str']: <25s}{lls[fs]['value']: <15.7} "\
-            f"+/- {lls[fs]['ster']: <5.4}\n" for fs in freez])
-        bst = [float(f'{x1: 3.7f}') for x1 in Cu.oneQPUtoTPP(bQ, bP, bU, qMin)]
-        bStr += f"{'(theta, phi, psi):': <30s}{bst}\n"
-        bStr += f"{'TotalNKin(=chi2_r)': <30s}{nKin: <15d}\n"
-        bStr += f"{'kin chi2': <30s}{bChi: <15.7f}\n"
-        bStr += f"{'kin chi2 / DOF': <30s}{bChi/nKin: <15.7f}\n"
-        # bStr += "{: <20s}{: <15.2f}\n".format('kin chi2_r', bChiR)
-        bStr += f"{'Key': <10s}\n{'': <4s}{bMKey: <75s}"
-    except:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
-        traceback.print_exc()
-        print(f"LINE {exc_traceback.tb_lineno}\n{'': <4s}{exc_type}\n"\
-              f"{'': <4s}{exc_value}")
-        pdb.set_trace()
-
-    print(bStr)
-
-    return bChiR, bBH, bQ, bP, bU, bDM, bDF, bML, params
-
-# ------------------------------------------------------------------------------
-
 def reverseGenINF(galaxy, mPath):
     bDir = curdir/'tri_models'/mPath
     iDir = bDir/'infil'
@@ -2140,5 +1911,106 @@ def reverseGenINF(galaxy, mPath):
     Write.lzma(ifn, INF)
     Write.lzma(curdir/'obsData'/f"{galaxy}.xz", dict(distance=param['distance']
         ))
+
+# ------------------------------------------------------------------------------
+
+def oneSpec(spectrum, labels=['velz', 'sigma', 'h3', 'h4', 'logage', 'zH',
+        'FeH', 'Na', 'IMF1', 'IMF2',], pplots=['input', 'fit', 'corn']):
+    """
+    Plot results for a single isolated run of alf
+
+    Parameters
+    ----------
+    spectrum : str
+        _description_
+    labels : list, optional
+        _description_, by default ['velz', 'sigma', 'h3', 'h4', 'logage', 'zH', 'FeH', 'Na', 'IMF1', 'IMF2',]
+    pplots : list, optional
+        _description_, by default ['input', 'fit', 'corn']
+
+    Returns
+    -------
+    _type_
+        _description_
+    
+    Examples
+    --------
+    au.oneSpec('SNL1_NFMESOouterError_1arcs_dust', labels=['velz', 'sigma', 'h3', 'h4', 'logage', 'zH', 'FeH', 'Na', 'Ti', 'IMF1', 'C', 'N', 'Si', 'K', 'V', 'Cr', 'Mn', 'Co', 'Ni', 'Cu', 'Sr', 'Ba', 'Eu'])
+    """    
+    import matplotlib.pyplot as plt
+
+    alf = Alf(curdir/'results'/spectrum, mPath=curdir)
+    alf.get_total_met()
+    alf.normalize_spectra()
+    alf.abundance_correct()
+
+    ifn = curdir/'indata'/f"{spectrum}.dat"
+    waves, tPix, spec, err, weights, vel = readSpec(ifn)
+
+    if 'input' in pplots:
+        fig = plt.figure(figsize=plt.figaspect(1./10.))
+        ax = fig.gca()
+        for wpair in waves:
+            ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4))[0]
+            ax.plot(tPix[ww], spec[ww], lw=0.4, c='r')
+        ax.fill_between(tPix, weights*spec.max(), alpha=0.2, facecolor='k',
+            zorder=0)
+        ax.set_ylim(top=(spec*weights).max()*1.1)
+        fig.savefig(f"{spectrum}_input.pdf", format='pdf')
+
+    if 'fit' in pplots:
+        alf.plot_model(f"{spectrum}_fit.pdf")
+        mwave, model, sinp, merr, _, mres = np.loadtxt(curdir/'results'/\
+            f"{spectrum}.bestspec", unpack=True)
+        fig = plt.figure(figsize=plt.figaspect(2.5/10.)*0.7)
+        gs = gridspec.GridSpec(2, 1, hspace=0, wspace=0)
+        ax = fig.add_subplot(gs[0, 0])
+        for wpair in waves:
+            ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4))[0]
+            ax.plot(tPix[ww], spec[ww], lw=0.5, c='k')
+        ax.plot(mwave, model, lw=0.5, c='r')
+        ax.fill_between(tPix, (1.0-weights)*spec.max(), alpha=0.2,
+            facecolor='k', zorder=0)
+        ax.set_ylim(bottom=spec[weights>0][:-2].min()*0.7,
+            top=spec[weights>0].max()*1.05)
+        ax.set_xlim(min(mwave.min(), tPix.min())-20.,
+            max(mwave.max(), tPix.max())+20.)
+        ax.set_xticklabels([])
+        ax.set_ylabel('Flux')
+
+        ax = fig.add_subplot(gs[1, 0])
+        mask = (tPix >= (mwave.min()-1.)) & (tPix <= (mwave.max()+1.))
+        temp = tPix[mask][np.ma.getmaskarray(np.ma.masked_less(weights[mask], 0.5))]
+        mwm = np.array([np.argmin(np.abs(tempi-mwave)) for tempi in temp])
+        newm = np.zeros_like(mwave)
+        newm[mwm] = 1
+        residual = np.ma.masked_array((sinp-model)/sinp*100., mask=newm)
+        ax.scatter(mwave, residual, marker='^', c='g', s=2)
+        ax.axhline(0.0, lw=0.5, ls='--', c='grey')
+        ax.fill_between(tPix, y1=-0.05*(1-weights), y2=0.05*(1-weights),
+            alpha=0.2, facecolor='k', zorder=0)
+        ax.set_xlabel(rf"Wavelength $[{UTS.angst}]$")
+        ax.set_ylabel(r'Residual $[\%]$')
+        ax.set_xlim(min(mwave.min(), tPix.min())-20.,
+            max(mwave.max(), tPix.max())+20.)
+        ax.set_ylim((-5, 5))
+        ax.yaxis.set_major_locator(ticker.MaxNLocator(3, integer=True))
+        fig.savefig(f"{spectrum}_spec.pdf")
+        fig.savefig(f"{spectrum}_spec.png")
+    
+    if 'corn' in pplots:
+        alf.plot_corner(f"{spectrum}_corn", labels)
+    plt.close('all')
+
+    arm = alf.results
+    types = arm['Type'].tolist()
+    bidx = types.index('chi2')
+    eidx = types.index('error')
+    print(f"{'Param': >15s} | {'Value': >30s}")
+    print('-'*48)
+    for lab in labels:
+        ers = f"{arm[lab][bidx]: .4f} +/- {arm[lab][eidx]: .4f}"
+        print(f"{lab: >15s} | {ers: >30s}")
+    return alf
 
 # ------------------------------------------------------------------------------

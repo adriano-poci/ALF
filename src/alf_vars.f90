@@ -1,6 +1,6 @@
 MODULE ALF_VARS
 
-  ! module to set up most arrays and variables
+  ! module to set up most arrays and variables 
 
   IMPLICIT NONE
   SAVE
@@ -16,12 +16,13 @@ MODULE ALF_VARS
 
   !-------------------set various parameters---------------------!
 
-  !flags for the user to choose.  These can also be set at the
+  !flags for the user to choose.  These can also be set at the 
   !very beginning of alf.f90
 
   !0: fit the full model (IMF, all abundances, nuisance params, etc)
   !1: only fit velz, sigma, SSP age, Z, Fe,C,N,O,Mg,Si,Ca,Ti,Na
   !2: only fit velz, sigma, SSP age, Z
+  !3: only fit velz, sigma, SSP age, Z and [a/Fe] 
   INTEGER :: fit_type=0
 
   !turn on the use of age-dependent response functions
@@ -61,7 +62,7 @@ MODULE ALF_VARS
   REAL(DP) :: smooth_trans=0.0
 
   !flag used to tell the code if we are fitting in powell mode or not
-  !this is set internally in the code
+  !this is set internally in the code 
   INTEGER :: powell_fitting = 0
 
   !IMF power-law slope within each bin for non-paramtric IMF
@@ -88,7 +89,7 @@ MODULE ALF_VARS
 
   !flag to turn on the use of an external, tabulated M/L prior
   INTEGER :: extmlpr = 0
-
+  
   !--------------------------------------------------------------!
   !  the options below have not been tested/used in a long time  !
   !  and so are effectively deprecated                           !
@@ -96,7 +97,7 @@ MODULE ALF_VARS
 
   !fit a polynomial to the ratio of model and data
   !if zero, then both data and model are continuum divided
-  INTEGER :: fit_poly=0
+  INTEGER :: fit_poly=1
   !mask emission lines? (if 0, then the em lines are incl in the fit)
   INTEGER :: maskem=0
   !apply template error function? (only works for SDSS stacks)
@@ -105,12 +106,12 @@ MODULE ALF_VARS
   INTEGER :: fake_response=0
   !Turn off the IMF sensitivity at <7000A if this parameter is =1
   INTEGER :: blueimf_off=0
-
+  
   !--------------------------------------------------------------!
   !    the parameters below should not be modified unless you    !
   !    really know what you are doing!                           !
   !--------------------------------------------------------------!
-
+  
 #if (VCJ)
   !VCJ models
   CHARACTER(3), PARAMETER :: ssp_type='vcj'
@@ -121,7 +122,7 @@ MODULE ALF_VARS
   INTEGER, PARAMETER :: nzmet3 = 1
 #endif
 
-  !nstart and nend allow us to use only a subset of
+  !nstart and nend allow us to use only a subset of 
   !the full wavelength array
   INTEGER, PARAMETER :: nstart = 100 !100   ! 0.36 um
   INTEGER, PARAMETER :: nend   = 5830 !10566 (all) ! 5830 (1.10u)
@@ -157,6 +158,8 @@ MODULE ALF_VARS
   INTEGER, PARAMETER :: ndat = 30000
   !total number of parameters in the simple model
   INTEGER, PARAMETER :: nparsimp = 14
+  !total number of parameters in the semi-simple model
+  INTEGER, PARAMETER :: nparsemisimp = 5
   !number of indices defined in allindices.dat
   INTEGER, PARAMETER :: nindx=25
   !number of filters
@@ -205,7 +208,7 @@ MODULE ALF_VARS
   !array storing the tabulated M/L prior
   REAL(DP), DIMENSION(ndat,2) :: mlprtab=0.
   INTEGER :: nmlprtabmax=1
-
+  
   !array for the template error function
   REAL(DP), DIMENSION(nl) :: temperrfcn=1.0
 
@@ -232,7 +235,7 @@ MODULE ALF_VARS
 
   !IMF slopes within each bin
   REAL(DP), DIMENSION(nimfnp) :: npi_alphav=0., npi_renorm=1.0
-
+  
   !---------------------Physical Constants-----------------------!
   !---------------in cgs units where applicable------------------!
 
@@ -250,12 +253,12 @@ MODULE ALF_VARS
   !define small and large numbers
   REAL(DP), PARAMETER :: huge_number = 1E33
   REAL(DP), PARAMETER :: tiny_number = 1E-33
-
+  
   !-------------------Define TYPE structures---------------------!
-
+  
   !structure for the set of parameters necessary to generate a model
   TYPE PARAMS
-     REAL(DP) :: velz=0.0,sigma=0.0,logage=1.0,zh=0.0,feh=0.0,ah=0.0,&
+     REAL(DP) :: velz=0.0,sigma=0.0,logage=1.0,zh=0.0,ah=0.0,feh=0.0,&
           nhe=0.0,ch=0.0,nh=0.0,nah=0.0,mgh=0.0,sih=0.0,kh=0.0,&
           cah=0.0,tih=0.0,vh=0.0,crh=0.0,mnh=0.0,coh=0.0,nih=0.0,&
           cuh=0.0,srh=0.0,bah=0.0,euh=0.0,teff=0.0,imf1=1.3,imf2=2.3,&
@@ -266,7 +269,7 @@ MODULE ALF_VARS
           logsky=-4.0,imf4=0.0,h3=0.0,h4=0.0
      REAL(DP) :: chi2=huge_number
   END TYPE PARAMS
-
+  
   !structure for the models
   TYPE SSP
      REAL(DP), DIMENSION(nl) :: lam,m7g
@@ -276,7 +279,7 @@ MODULE ALF_VARS
      REAL(DP), DIMENSION(nage_rfcn)     :: logagegrid_rfcn
      REAL(DP), DIMENSION(nage)          :: logagegrid
      REAL(DP), DIMENSION(nzmet)         :: logzgrid
-     REAL(DP), DIMENSION(nzmet3)        :: logzgrid2
+     REAL(DP), DIMENSION(nzmet3)        :: logzgrid2     
      REAL(DP), DIMENSION(nl,nimf,nimf,nage,nzmet)        :: logssp
      REAL(DP), DIMENSION(nl,nimf,nimf,nage,nmcut,nzmet3) :: logsspm
      REAL(DP), DIMENSION(nl,nimfnp,nage,nzmet)           :: sspnp
@@ -303,7 +306,7 @@ MODULE ALF_VARS
   TYPE(SSP) :: sspgrid
   !define the object for the raw data array
   TYPE(TDATA), DIMENSION(ndat) :: data
-
+  
   !define the object for the data interpolated to the model arr
   !TYPE(TDATA), DIMENSION(nl)  :: idata
 

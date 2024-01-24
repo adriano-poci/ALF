@@ -1,0 +1,3973 @@
+[1mdiff --git a/.vscode/settings.json b/.vscode/settings.json[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/Alf.py b/Alf.py[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex 36dfac8..41519b2[m
+[1m--- a/Alf.py[m
+[1m+++ b/Alf.py[m
+[36m@@ -26,6 +26,7 @@[m [mv1.1:   Corrected bug when using `astropy` `hstack` changes the column names[m
+            and `plot_traces`. 29 July 2022[m
+v1.2:   Manually handle notch filter (and other masked regions) in spectra in[m
+            `normalize_spectra`. 31 August 2022[m
+[32m{+v1.3:   Don't plot the model over the masked regions. 10 July 2023+}[m
+"""[m
+
+import sys, pdb[m
+[36m@@ -44,16 +45,16 @@[m [mcurdir = plp.Path(__file__).parent[m
+
+class Alf(object):[m
+    def __init__(self, outpath, mPath=None):[m
+        self.outpath = [31m[-outpath-][m[32m{+outpath.parent+}[m
+        self.outfile = [31m[-self.outpath.stem-][m[32m{+outpath.stem+}[m
+        if isinstance(mPath, type(None)):[m
+            mPath = curdir[m
+        self.mPath = plp.Path(mPath)[m
+        self.nsample = None[m
+        self.spectra = None[m
+
+        self.mcmc = [31m[-np.loadtxt(self.mPath/f"{self.outfile}.mcmc")-][m[32m{+np.loadtxt(self.outpath/f"{self.outfile}.mcmc")+}[m
+        with [31m[-open(self.mPath/f"{self.outfile}.sum",-][m[32m{+open(self.outpath/f"{self.outfile}.sum",+}[m 'r') as fil:
+            sum = fil.readlines()[m
+        hdr = [][m
+        results = [][m
+[36m@@ -134,7 +135,7 @@[m [mclass Alf(object):[m
+        doesn't exist[m
+        """[m
+        #try:[m
+        model = [31m[-np.loadtxt(self.mPath/f"{self.outfile}.bestspec")-][m[32m{+np.loadtxt(self.outpath/f"{self.outfile}.bestspec")+}[m
+        #except:[m
+        #    warning = ('Do not have the *.bestspec file')[m
+        #    warnings.warn(warning)[m
+[36m@@ -149,7 +150,7 @@[m [mclass Alf(object):[m
+        self.spectra = data[m
+
+        try:[m
+            model2 = [31m[-np.loadtxt(self.mPath/f"{self.outfile}.bestspec2")-][m[32m{+np.loadtxt(self.outpath/f"{self.outfile}.bestspec2")+}[m
+            mod2 = dict()[m
+            mod2['wave'] = model2[:, 0][m
+            #model['wave'] = m[:,0]/(1.+self.results['velz'][5]*1e3/constants.c)[m
+[36m@@ -196,6 +197,7 @@[m [mclass Alf(object):[m
+        min_ = min(self.spectra['wave'])[m
+        max_ = max(self.spectra['wave'])[m
+        num  = int((max_ - min_)/chunks) + 1[m
+        [32m{+self.spectra['smask'] = smask+}[m
+
+        for i in range(num):[m
+            kd = ((self.spectra['wave'] >= min_ + chunks*i) &[m
+[36m@@ -384,9 +386,11 @@[m [mclass Alf(object):[m
+                    (self.spectra['wave'] <= min_ + chunks*(i+1)))[m
+                ax1.plot(self.spectra['wave'][j],[m
+                    self.spectra['d_flux_norm'][j], 'k-', lw=2, label='Data')[m
+                
+                [32m{+mmodel = np.ma.masked_array(self.spectra['m_flux_norm'][j],+}[m
+[32m{+                    ~self.spectra['smask'][j])+}[m
+
+                ax1.plot(self.spectra['wave'][j], [31m[-self.spectra['m_flux_norm'][j],-][m[32m{+mmodel,+}[m color='#E32017', lw=2,
+                    label='Model')[m
+                ax1.legend(frameon=False)[m
+
+[1mdiff --git a/Mass_To_Light_From_Conroy.ipynb b/Mass_To_Light_From_Conroy.ipynb[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/Mass_To_Light_From_Conroy.py b/Mass_To_Light_From_Conroy.py[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/NGC3115/startAlf.qsys b/NGC3115/startAlf.qsys[m
+[1mindex af9a67b..13247ca 100755[m
+[1m--- a/NGC3115/startAlf.qsys[m
+[1m+++ b/NGC3115/startAlf.qsys[m
+[36m@@ -22,7 +22,7 @@[m [mexport ALF_HOME=/fred/oz059/poci/alf/[m
+
+### Compile clean version of `alf`[m
+cd ${ALF_HOME}src[m
+cp [31m[-alf.f90.perm-][m[32m{+alf.perm.f90+}[m alf.f90
+# Remove prior placeholders on velz[m
+sed -i "/prlo%velz = -999./d" alf.f90[m
+sed -i "/prhi%velz = 999./d" alf.f90[m
+[36m@@ -45,7 +45,7 @@[m [mecho "${aperKin[*]}" 2>&1 | tee -a "NGC3115/out_aperture.log"[m
+
+### Compile modified velocity priors[m
+cd src[m
+cp [31m[-alf.f90.perm-][m[32m{+alf.perm.f90+}[m alf.f90
+# `bc` arithmetic to define the lower and upper velocity bounds[m
+newVLo=$(bc -l <<< "(${aperKin[0]} - ${aperKin[1]}) - 5.0 * (${aperKin[2]} + ${aperKin[3]})")[m
+newVHi=$(bc -l <<< "(${aperKin[0]} + ${aperKin[1]}) + 5.0 * (${aperKin[2]} + ${aperKin[3]})")[m
+[1mdiff --git a/NGC4365/alf00.qsys b/NGC4365/alf00.qsys[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex 29075be..4fe3578[m
+[1m--- a/NGC4365/alf00.qsys[m
+[1m+++ b/NGC4365/alf00.qsys[m
+[36m@@ -7,7 +7,7 @@[m
+#SBATCH --ntasks=1[m
+#SBATCH --cpus-per-task=16[m
+#SBATCH --mem-per-cpu=3000[m
+#SBATCH [31m[---array=0-500-][m[32m{+--array=0-330+}[m
+#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL[m
+#SBATCH --mail-user=adriano.poci@durham.ac.uk[m
+#SBATCH -o "/cosma5/data/durham/dc-poci1/alf/NGC4365/out.log" # Standard out to galaxy[m
+[1mdiff --git a/NGC4365/alf01.qsys b/NGC4365/alf01.qsys[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex f5e0c03..d331942[m
+[1m--- a/NGC4365/alf01.qsys[m
+[1m+++ b/NGC4365/alf01.qsys[m
+[36m@@ -7,7 +7,7 @@[m
+#SBATCH --ntasks=1[m
+#SBATCH --cpus-per-task=16[m
+#SBATCH --mem-per-cpu=3000[m
+#SBATCH [31m[---array=0-500-][m[32m{+--array=0-330+}[m
+#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL[m
+#SBATCH --mail-user=adriano.poci@durham.ac.uk[m
+#SBATCH -o "/cosma5/data/durham/dc-poci1/alf/NGC4365/out.log" # Standard out to galaxy[m
+[36m@@ -23,5 +23,5 @@[m [mmodule load cmake/3.18.1[m
+export ALF_HOME=/cosma5/data/durham/dc-poci1/alf/[m
+
+cd ${ALF_HOME}[m
+declare idx=$(printf %04d $((${SLURM_ARRAY_TASK_ID} + [31m[-500)))-][m[32m{+330)))+}[m
+mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} ./NGC4365/bin/alf.exe "NGC4365_SN100_${idx}" 2>&1 | tee -a "NGC4365/out_${idx}.log"[m
+[1mdiff --git a/NGC4365/alf02.qsys b/NGC4365/alf02.qsys[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex 4a94e2b..06f2796[m
+[1m--- a/NGC4365/alf02.qsys[m
+[1m+++ b/NGC4365/alf02.qsys[m
+[36m@@ -7,7 +7,7 @@[m
+#SBATCH --ntasks=1[m
+#SBATCH --cpus-per-task=16[m
+#SBATCH --mem-per-cpu=3000[m
+#SBATCH [31m[---array=0-500-][m[32m{+--array=0-330+}[m
+#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL[m
+#SBATCH --mail-user=adriano.poci@durham.ac.uk[m
+#SBATCH -o "/cosma5/data/durham/dc-poci1/alf/NGC4365/out.log" # Standard out to galaxy[m
+[36m@@ -23,5 +23,5 @@[m [mmodule load cmake/3.18.1[m
+export ALF_HOME=/cosma5/data/durham/dc-poci1/alf/[m
+
+cd ${ALF_HOME}[m
+declare idx=$(printf %04d $((${SLURM_ARRAY_TASK_ID} + [31m[-1000)))-][m[32m{+660)))+}[m
+mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} ./NGC4365/bin/alf.exe "NGC4365_SN100_${idx}" 2>&1 | tee -a "NGC4365/out_${idx}.log"[m
+[1mdiff --git a/NGC4365/alf03.qsys b/NGC4365/alf03.qsys[m
+[1mindex 0ebe851..736b93c 100755[m
+[1m--- a/NGC4365/alf03.qsys[m
+[1m+++ b/NGC4365/alf03.qsys[m
+[36m@@ -7,7 +7,7 @@[m
+#SBATCH --ntasks=1[m
+#SBATCH --cpus-per-task=16[m
+#SBATCH --mem-per-cpu=3000[m
+#SBATCH [31m[---array=0-500-][m[32m{+--array=0-330+}[m
+#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL[m
+#SBATCH --mail-user=adriano.poci@durham.ac.uk[m
+#SBATCH -o "/cosma5/data/durham/dc-poci1/alf/NGC4365/out.log" # Standard out to galaxy[m
+[36m@@ -23,5 +23,5 @@[m [mmodule load cmake/3.18.1[m
+export ALF_HOME=/cosma5/data/durham/dc-poci1/alf/[m
+
+cd ${ALF_HOME}[m
+declare idx=$(printf %04d $((${SLURM_ARRAY_TASK_ID} + [31m[-1500)))-][m[32m{+990)))+}[m
+mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} ./NGC4365/bin/alf.exe "NGC4365_SN100_${idx}" 2>&1 | tee -a "NGC4365/out_${idx}.log"[m
+[1mdiff --git a/NGC4365/alf04.qsys b/NGC4365/alf04.qsys[m
+[1mindex 5f22964..469c957 100755[m
+[1m--- a/NGC4365/alf04.qsys[m
+[1m+++ b/NGC4365/alf04.qsys[m
+[36m@@ -7,7 +7,7 @@[m
+#SBATCH --ntasks=1[m
+#SBATCH --cpus-per-task=16[m
+#SBATCH --mem-per-cpu=3000[m
+#SBATCH [31m[---array=0-500-][m[32m{+--array=0-330+}[m
+#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL[m
+#SBATCH --mail-user=adriano.poci@durham.ac.uk[m
+#SBATCH -o "/cosma5/data/durham/dc-poci1/alf/NGC4365/out.log" # Standard out to galaxy[m
+[36m@@ -23,5 +23,5 @@[m [mmodule load cmake/3.18.1[m
+export ALF_HOME=/cosma5/data/durham/dc-poci1/alf/[m
+
+cd ${ALF_HOME}[m
+declare idx=$(printf %04d $((${SLURM_ARRAY_TASK_ID} + [31m[-2000)))-][m[32m{+1320)))+}[m
+mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} ./NGC4365/bin/alf.exe "NGC4365_SN100_${idx}" 2>&1 | tee -a "NGC4365/out_${idx}.log"[m
+[1mdiff --git a/NGC4365/alf05.qsys b/NGC4365/alf05.qsys[m
+[1mindex 049ec96..3c998cd 100755[m
+[1m--- a/NGC4365/alf05.qsys[m
+[1m+++ b/NGC4365/alf05.qsys[m
+[36m@@ -7,7 +7,7 @@[m
+#SBATCH --ntasks=1[m
+#SBATCH --cpus-per-task=16[m
+#SBATCH --mem-per-cpu=3000[m
+#SBATCH [31m[---array=0-311-][m[32m{+--array=0-330+}[m
+#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL[m
+#SBATCH --mail-user=adriano.poci@durham.ac.uk[m
+#SBATCH -o "/cosma5/data/durham/dc-poci1/alf/NGC4365/out.log" # Standard out to galaxy[m
+[36m@@ -23,5 +23,5 @@[m [mmodule load cmake/3.18.1[m
+export ALF_HOME=/cosma5/data/durham/dc-poci1/alf/[m
+
+cd ${ALF_HOME}[m
+declare idx=$(printf %04d $((${SLURM_ARRAY_TASK_ID} + [31m[-2500)))-][m[32m{+1650)))+}[m
+mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} ./NGC4365/bin/alf.exe "NGC4365_SN100_${idx}" 2>&1 | tee -a "NGC4365/out_${idx}.log"[m
+[1mdiff --git a/NGC4365/alf_replace.sed b/NGC4365/alf_replace.sed[m
+[1mindex 1cf7435..a9551d8 100755[m
+[1m--- a/NGC4365/alf_replace.sed[m
+[1m+++ b/NGC4365/alf_replace.sed[m
+[36m@@ -1,7 +1,7 @@[m
+/'cz out of prior bounds, setting to 0.0'/ {[m
+    p;n;[m
+    /velz = 0.0/ {[m
+        s/velz = 0.0/velz = [31m[-999/;-][m[32m{+1245.5652000/;+}[m
+        p;d;[m
+            }[m
+}[m
+[1mdiff --git a/NGC4365/startAlf.qsys b/NGC4365/startAlf.qsys[m
+[1mindex b7cc0fc..4b76e6b 100755[m
+[1m--- a/NGC4365/startAlf.qsys[m
+[1m+++ b/NGC4365/startAlf.qsys[m
+[36m@@ -17,17 +17,17 @@[m [msource ${HOME}/.bashrc[m
+
+module load gnu_comp[m
+module load python/3.10.7[m
+module load [31m[-openmpi/20190429-][m[32m{+openmpi/4.1.4+}[m
+module load cmake/3.18.1[m
+export ALF_HOME=/cosma5/data/durham/dc-poci1/alf/[m
+
+### Compile clean version of `alf`[m
+cd ${ALF_HOME}src[m
+cp [31m[-alf.f90.perm-][m[32m{+alf.perm.f90+}[m alf.f90
+# Remove prior placeholders on velz[m
+sed -i "/prlo%velz = -999./d" alf.f90[m
+sed -i "/prhi%velz = 999./d" alf.f90[m
+make [32m{+clean && make+}[m all && make clean
+cd ${ALF_HOME}[m
+# Run aperture fit[m
+mpirun --oversubscribe -np ${SLURM_CPUS_PER_TASK} ./bin/alf.exe "NGC4365_SN100_aperture" 2>&1 | tee -a "NGC4365/out_aperture.log"[m
+[36m@@ -38,8 +38,31 @@[m [mgalax='NGC4365'[m
+SN=100[m
+pythonOutput=$($Ipy alf_aperRead.py -- -g "$galax" -sn "$SN")[m
+echo "$pythonOutput" 2>&1 | tee -a "NGC4365/out_aperture.log"[m
+[32m{+# Temporary variable for the last line of the Python output+}[m
+[32m{+readarray -t tmp <<< $(echo "$pythonOutput" | tail -n1)+}[m
+[32m{+# Transform into bash array+}[m
+[32m{+IFS=',' read -ra aperKin <<< "$tmp"+}[m
+[32m{+echo "${aperKin[*]}" 2>&1 | tee -a "NGC4365/out_aperture.log"+}[m
+
+[32m{+### Compile modified velocity priors+}[m
+[32m{+cd src+}[m
+[32m{+cp alf.perm.f90 alf.f90+}[m
+[32m{+# `bc` arithmetic to define the lower and upper velocity bounds+}[m
+[32m{+newVLo=$(bc -l <<< "(${aperKin[0]} - ${aperKin[1]}) - 5.0 * (${aperKin[2]} + ${aperKin[3]})")+}[m
+[32m{+newVHi=$(bc -l <<< "(${aperKin[0]} + ${aperKin[1]}) + 5.0 * (${aperKin[2]} + ${aperKin[3]})")+}[m
+[32m{+sed -i "s/prlo%velz = -999./prlo%velz = ${newVLo}/g" alf.f90+}[m
+[32m{+sed -i "s/prhi%velz = 999./prhi%velz = ${newVHi}/g" alf.f90+}[m
+[32m{+# Replace the placeholder value in `sed` script+}[m
+[32m{+sed -i "s/velz = 999/velz = ${aperKin[0]}/g" ${ALF_HOME}NGC4365/alf_replace.sed+}[m
+[32m{+# Run `sed` using the multi-line script+}[m
+[32m{+# Pipe to temporary file+}[m
+[32m{+sed -n -f ${ALF_HOME}NGC4365/alf_replace.sed alf.f90 >> alf_tmp.f90+}[m
+[32m{+mv alf_tmp.f90 alf.f90+}[m
+
+[32m{+make clean && make all && make clean+}[m
+
+# Move executables to local directory[m
+cd ${ALF_HOME}[m
+mkdir [31m[-${galax}/bin-][m[32m{+NGC4365/bin+}[m
+cp bin/* [31m[-${galax}/bin/-][m[32m{+NGC4365/bin/+}[m
+find [31m[-"$galax"-][m[32m{+"NGC4365"+}[m -name "alf*.qsys" -type f -exec sbatch {} \;
+[1mdiff --git a/SNL1/alf00.qsys b/SNL1/alf00.qsys[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/SNL1/alf01.qsys b/SNL1/alf01.qsys[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/SNL1/alf02.qsys b/SNL1/alf02.qsys[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/SNL1NFM/alf00.qsys b/SNL1NFM/alf00.qsys[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/alf_MUSE.py b/alf_MUSE.py[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex 2df8c01..d25032c[m
+[1m--- a/alf_MUSE.py[m
+[1m+++ b/alf_MUSE.py[m
+[36m@@ -40,6 +40,30 @@[m [mv1.8:   Added extra 100km s^{-1} model smoothening internal to alf in `afh`. 22[m
+v1.9:   Use new `polyPatch`. 1 February 2023[m
+v1.10:  Pull `smin` and `smax` from `kwargs` if provided;[m
+        Use `dcName` for polygon patch files. 21 March 2023[m
+[32m{+v1.11:  Corrected elemental abudance labels to be relative to Hydrogen. 16 May+}[m
+[32m{+            2023+}[m
+[32m{+v1.12:  Changed colourmaps to `seaborn.icefire`;+}[m
+[32m{+        Fixed bug in max IMF colour value. 13 June 2023+}[m
+[32m{+v1.13:  Prettyfied the `input` figure in `showPlots`;+}[m
+[32m{+        Corrected label references for the corner plot in `showPlots`. 4 July+}[m
+[32m{+            2023+}[m
+[32m{+v1.14:  Renamed input properties to `AAP*` to avoid confusion with output `AFH*`+}[m
+[32m{+            in `aap`. 5 July 2023+}[m
+[32m{+v1.15:  Check for strings in `_mpSpecFromSum`. 26 October 2023+}[m
+[32m{+v1.16:  Plot full spectral fit in `showPlots`;+}[m
+[32m{+        Allow list of apertures in `showPlots`;+}[m
+[32m{+        Check IMF type before plotting corner in `showPlots`. 7 November 2023+}[m
+[32m{+v1.17:  Improved full spectral fit figure in `showPlots`. 16 November 2023+}[m
+[32m{+v1.18:  Only plot one map if there is only one IMF free parameter in `afh`. 17+}[m
+[32m{+            December 2023+}[m
+[32m{+v1.19:  Plot [Fe/H] as metallicity, since [Z/H] is only a technical parameter in+}[m
+[32m{+            alf --- it determines the isochrone set, but isn't physically the+}[m
+[32m{+            metallicity;+}[m
+[32m{+        Plot only the abundances with some dynamic range. 18 December 2023+}[m
+[32m{+v1.20:  Added `radial` argument to `pplots` to separate the radial profiles of+}[m
+[32m{+            the stellar populations;+}[m
+[32m{+        Romanicised the metallicity label;+}[m
+[32m{+        Added posterior samples to the abundance profiles. 20 December 2023+}[m
+"""[m
+from __future__ import print_function, division[m
+
+[36m@@ -56,19 +80,23 @@[m [mimport shutil as su[m
+import numpy as np[m
+from scipy import ndimage[m
+from scipy.stats.mstats import scoreatpercentile as sssp[m
+[32m{+from scipy.interpolate import interp1d+}[m
+[32m{+from skimage import filters as skilters+}[m
+from astropy.io import fits as pf[m
+from astropy.stats import sigma_clip as assc[m
+from astropy.cosmology import z_at_value as azav, Planck18 as cosmo[m
+import matplotlib.pyplot as plt[m
+from matplotlib import [31m[-cm-][m[32m{+cm, ticker+}[m
+import matplotlib.gridspec as gridspec[m
+import matplotlib.patheffects as PathEffects[m
+[32m{+import seaborn as sns+}[m
+import multiprocessing as mp[m
+from functools import partial[m
+from tqdm import tqdm[m
+import subprocess as sp[m
+import itertools[m
+from inspect import getargvalues as ingav, currentframe as incf[m
+[32m{+from svo_filters import svo+}[m
+
+# Custom modules[m
+from alf.Alf import Alf[m
+[36m@@ -88,8 +116,10 @@[m [mfrom pafit.fit_kinematic_pa import fit_kinematic_pa as fkpa[m
+from ppxf.ppxf_util import log_rebin[m
+
+curdir = plp.Path(__file__).parent[m
+
+dDir = au._ddir()[m
+[32m{+icefire = sns.color_palette("icefire", as_cmap=True)+}[m
+[32m{+rocket = sns.color_palette("rocket", as_cmap=True)+}[m
+[32m{+rocketr = sns.color_palette("rocket_r", as_cmap=True)+}[m
+
+CTS = Constants()[m
+UTS = UnitStr()[m
+[36m@@ -97,6 +127,15 @@[m [mPOT = Plot()[m
+GEO = Geometric()[m
+PHT = Photometry()[m
+
+[32m{+alfFP = ['chi2', 'velz', 'sigma', 'logage', 'zH', 'FeH', 'a', 'C', 'N', 'Na',+}[m
+[32m{+    'Mg', 'Si', 'K', 'Ca', 'Ti', 'V', 'Cr', 'Mn', 'Co', 'Ni', 'Cu', 'Sr', 'Ba',+}[m
+[32m{+    'Eu', 'Teff', 'IMF1', 'IMF2', 'logfy', 'sigma2', 'velz2', 'logm7g',+}[m
+[32m{+    'hotteff', 'loghot', 'fy_logage', 'logemline_h', 'logemline_oii',+}[m
+[32m{+    'logemline_oiii', 'logemline_sii', 'logemline_ni', 'logemline_nii',+}[m
+[32m{+    'logtrans', 'jitter', 'logsky', 'IMF3', 'IMF4', 'h3', 'h4', 'ML_v', 'ML_i',+}[m
+[32m{+    'ML_k', 'MW_v', 'MW_i', 'MW_k']+}[m
+[32m{+# ORder of ALF free parameters+}[m
+
+# ------------------------------------------------------------------------------[m
+
+def _mpCount( j, gSpec, mpCount ):[m
+[36m@@ -194,7 +233,7 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+        'ndat', 'nparsimp', 'nindx', 'nfil',  'nhot', 'imflo', 'imfhi',[m
+        'krpa_imf1', 'krpa_imf2', 'krpa_imf3'][m
+    CNF = dict()[m
+    with [31m[-open(curdir/'src'/'alf.f90.perm',-][m[32m{+open(curdir/'src'/'alf.perm.f90',+}[m 'r') as af:
+        af90 = af.read()[m
+    with open(curdir/'src'/'alf_vars.f90', 'r') as af:[m
+        vf90 = af.read()[m
+[36m@@ -224,9 +263,9 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+    CNF['full'] = full[m
+    au.Write.lzma(gDir/'config.xz', CNF)[m
+
+    kinF = [31m[-gDir/f"AFH_SN{targetSN:02d}_{tEnd}.xz"-][m[32m{+gDir/f"AAP_SN{targetSN:02d}_{tEnd}.xz"+}[m
+    if isinstance(kfn, type(None)):[m
+        kfn = [31m[-plp.Path(f"AFH_SN{targetSN:02d}_{tEnd}.xz")-][m[32m{+plp.Path(kinF.name)+}[m
+    else:[m
+        kfn = plp.Path(kfn).name[m
+
+[36m@@ -322,7 +361,6 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+        overwrite=True)[m
+    fluxi = fluxii.ravel()[m
+
+
+    gal = au.Load.lzma(gfs)[m
+    if 'z' in gal.keys():[m
+        RZ = Redshift(redshift=gal['z'])[m
+[36m@@ -349,13 +387,18 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+    lPix = lambA[saur][m
+    lmin, lmax = lPix.min(), lPix.max()[m
+    llen = saur.size[m
+    [32m{+llen = saur.size+}[m
+
+[32m{+    lMask = np.ma.ones(lPix.size, dtype=bool)+}[m
+[32m{+    for pair in smask:+}[m
+[32m{+        lMask[(lPix <= pair[1]) & (lPix >= pair[0])] = 0+}[m
+
+    if pixels:[m
+        print('Reading pixel grid...')[m
+        xp, yp, sele, pixs = au.Load.lzma(pifs)[m
+        flux = np.compress(sele, fluxi)[m
+        xc, yc, photPA, [31m[-fcfg-][m[32m{+fcfg, gPlt, fPlt+}[m = [31m[-PHT.findCentre(np.ma.masked_array(fluxii,-][m[32m{+PHT.findCentre(np.ma.masked_array(+}[m
+[32m{+            fluxii,+}[m mask=~sele), galaxy)
+        print('Done.')[m
+    else:[m
+        print('Generating pixel grid...')[m
+[36m@@ -605,7 +648,7 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+                [415, 387, 10],[m
+            ][m
+            ellips = [][m
+        elif 'SNL1' in galaxy and [31m[-dcName == '':-][m[32m{+'WFM' in dcName:+}[m
+            # GIMP gives reversed y-axis[m
+            points = [][m
+            ellips = [[m
+[36m@@ -658,11 +701,44 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+            sele &= np.sqrt((xOrgi-160)**2 + (yOrgi-152)**2) <= 55[m
+        if 'SNL0' in galaxy:[m
+            sele &= np.sqrt((xOrgi-276)**2 + (yOrgi-232)**2) <= 150[m
+        [32m{+if 'SNL1' in galaxy and 'NFM' in dcName:+}[m
+[32m{+            sele &= np.sqrt((xOrgi-177)**2 + (yOrgi-169)**2) <= int(1.25/2./pixs)+}[m
+        if 'SNL2' in galaxy:[m
+            sele &= np.sqrt((xOrgi-205)**2 + (yOrgi-(125))**2) <= 100[m
+
+        xc, yc, photPA, [31m[-fcfg-][m[32m{+fcfg, gPlt, fPlt+}[m = [31m[-PHT.findCentre(np.ma.masked_array(fluxii,-][m[32m{+PHT.findCentre(+}[m
+[32m{+            np.ma.masked_array(fluxii,+}[m mask=~sele), galaxy)
+
+        [32m{+if kwargs.pop('dust', False):+}[m
+[32m{+            # make colour image+}[m
+[32m{+            bfil = svo.Filter('WFPC2.F439W')+}[m
+[32m{+            rfil = svo.Filter('WFPC2.F814W')+}[m
+[32m{+            bWave = bfil.wave.to('angstrom').value.flatten()+}[m
+[32m{+            bTrans = bfil.throughput.flatten()+}[m
+[32m{+            bUps = interp1d(bWave, bTrans, fill_value='extrapolate')+}[m
+[32m{+            bFilt = bUps(lambA).clip(0.0)+}[m
+[32m{+            rWave = rfil.wave.to('angstrom').value.flatten()+}[m
+[32m{+            rTrans = rfil.throughput.flatten()+}[m
+[32m{+            rUps = interp1d(rWave, rTrans, fill_value='extrapolate')+}[m
+[32m{+            rFilt = rUps(lambA).clip(0.0)+}[m
+[32m{+            # collapse data cube after applying filter+}[m
+[32m{+            if isinstance(hData, type(None)):+}[m
+[32m{+                hData = np.ma.masked_invalid(hdu[dataExt].data)+}[m
+[32m{+            bImg = np.sum(np.multiply(hData, bFilt[:, np.newaxis, np.newaxis]),+}[m
+[32m{+                axis=0)+}[m
+[32m{+            rImg = np.sum(np.multiply(hData, rFilt[:, np.newaxis, np.newaxis]),+}[m
+[32m{+                axis=0)+}[m
+[32m{+            dImg = bImg - rImg # colour image+}[m
+[32m{+            # unsharp mask the colour image+}[m
+[32m{+            smooth = skilters.gaussian(dImg, 1.5)+}[m
+[32m{+            uMask = dImg - smooth+}[m
+[32m{+            dust = np.ma.masked_less(uMask.ravel(), 290.)+}[m
+[32m{+            dMask = np.ma.getmaskarray(dust)+}[m
+[32m{+            dMask[(xOrgi-xc)*pixs > 0.075] = True # mask the non-dust+}[m
+[32m{+            dMask[np.sqrt(((xOrgi-xc)*pixs)**2 + ((yOrgi-yc)*pixs)**2) > 1.5+}[m
+[32m{+                ] = True+}[m
+[32m{+            # plt.clf(); dpp((xOrgi-xc)*pixs, (yOrgi-yc)*pixs, sele & dMask, pixelsize=pixs); plt.savefig('mask'); plt.close('all')+}[m
+[32m{+            sele &= dMask # invert the mask+}[m
+
+        xOrg = np.compress(sele, xOrgi)[m
+        yOrg = np.compress(sele, yOrgi)[m
+[36m@@ -752,8 +828,8 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+        gspecs = np.take(gspecs, saur, axis=0)[m
+        stats = np.take(stats, saur, axis=0)[m
+
+        [32m{+#+}[m notch = [576, 605] # [nm], maximum range for both NFM and WFM
+        [32m{+#+}[m nww = np.where((lPix < notch[0]*10) | (lPix > notch[1]*10))[0]
+        # the notch contributes NaNs to every spectrum, but isn't of[m
+        #   concern[m
+
+[36m@@ -764,20 +840,19 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+        else:[m
+            print('Generating selection...')[m
+
+            nNaN = [31m[-np.count_nonzero(np.isnan(gspecs[nww,-][m[32m{+np.count_nonzero(np.isnan(gspecs[lMask,+}[m :].data), axis=0)
+            nNeg = np.count_nonzero(gspecs < 0, axis=0)[m
+            if srn:[m
+                print(f"{'': <4s}Reading S/N...")[m
+                SNR = au.Load.lzma(snfs)[m
+            else:[m
+                print(f"{'': <4s}Computing S/N...")[m
+                signal = [31m[-np.ma.median(gspecs,-][m[32m{+np.ma.median(gspecs[lMask, :],+}[m axis=0)
+                noise = [31m[-np.abs(np.ma.median(stats,-][m[32m{+np.abs(np.ma.median(stats[lMask, :],+}[m axis=0))
+                SNR = np.divide(signal, noise)[m
+                au.Write.lzma(snfs, SNR)[m
+            snEps, snPA, snRad, snMask = SNRing([m
+                SNR, minSN, xp, yp, flux, pixs, debug=True, [31m[-galaxy=galaxy)-][m
+[31m[-            del flux-][m[32m{+galaxyPath=gDir)+}[m
+            # maximum 10% NaN or negative values[m
+            goods = (nNaN < llen/20.) & (nNeg < llen/20.) & (SNR >= minSN) & \[m
+                snMask[m
+[36m@@ -788,7 +863,6 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+                    mask = np.where(((xp-X)**2 + (yp-Y)**2) < dia)[0][m
+                    goods[mask] = False[m
+
+[31m[-            del nNaN, nNeg-][m
+            au.Write.lzma(sefs, [saur, goods])[m
+            print('Done.', flush=True)[m
+        # Defined variable here:[m
+[36m@@ -819,8 +893,8 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+        if vbin:[m
+            try:[m
+                print('Running Voronoi tesselation binning...', flush=True)[m
+                gMed = [31m[-np.ma.median(gspecs,-][m[32m{+np.ma.median(gspecs[lMask, :],+}[m axis=0)
+                sMed = [31m[-np.ma.median(stats,-][m[32m{+np.ma.median(stats[lMask, :],+}[m axis=0)  # median(1σ)
+                sMed[np.ma.getmaskarray(sMed)] = np.ma.median(sMed)[m
+                # one last check[m
+                binNum, xpin, ypin, xbar, ybar, endSN, nPixels, scale = v2db([m
+[36m@@ -910,7 +984,7 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+        ax.axvspan(pair[0], pair[1], alpha=0.5, facecolor='r', edgecolor=None,[m
+            fill=True)[m
+    fig.savefig(gDir/'apertureSpecMask.pdf')[m
+    [32m{+au.Write.lzma(gDir/'apertureSpec.figz', fig)+}[m
+
+    output['lVal'] = lmin[m
+    output['lN'] = llen[m
+[36m@@ -938,11 +1012,16 @@[m [mdef aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,[m
+
+    au.alfWrite(galaxy, targetSN, nbins, qProps=qProps, priors=priors,[m
+        dcName=dcName)[m
+    [32m{+plt.close('all')+}[m
+
+# ------------------------------------------------------------------------------[m
+
+def _mpSpecFromSum(aper, galaxy, SN, dcName=''):[m
+    [32m{+try:+}[m
+[32m{+        tail = f"{aper:04d}"+}[m
+[32m{+    except ValueError:+}[m
+[32m{+        tail = f"{aper}"+}[m
+    mfn = [31m[-f"{galaxy}_SN{SN:02d}_{aper:04d}"-][m[32m{+f"{galaxy}_SN{SN:02d}_{tail}"+}[m
+    if not (curdir/'results'/f"{mfn}.bestspec2").is_file() and \[m
+        (curdir/'results'/f"{mfn}.bestspec").is_file():[m
+        # Generate model on longer wavelength range[m
+[36m@@ -974,12 +1053,15 @@[m [mdef makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[],[m
+                SN=SN, dcName=dcName), apers)[m
+            for j in tqdm(it, desc='specSum', total=nSpat):[m
+                pass[m
+    [32m{+else:+}[m
+[32m{+        for aper in tqdm(apers, desc='specSum', total=nSpat):+}[m
+[32m{+            _mpSpecFromSum(aper, galaxy, SN, dcName)+}[m
+
+# ------------------------------------------------------------------------------[m
+
+def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+    pplots=['kin', 'err', 'age', 'metal', 'imf', 'ml', [31m[-'abund'],-][m[32m{+'abund', 'radial'],+}[m
+    band='F814W', NMP=15, contours=False, dcName='', **kwargs):
+    """_summary_[m
+
+    Args:[m
+[36m@@ -996,11 +1078,13 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        dcName (str, optional): a suffix to add to the model directory[m
+    Raises:[m
+        RuntimeError: _description_[m
+    [32m{+Examples+}[m
+[32m{+    --------+}[m
+[32m{+        am.afh('SNL1', SN=80, full=True, FOV=False, band='F814W',+}[m
+[32m{+            photFilt='WFPC2.F814W', dcName='NFMESOouter')+}[m
+    """    [m
+
+    [31m[-frame-][m[32m{+posterior+}[m = [31m[-incf()-][m
+[31m[-    funcArgs, _, _, funcValues = ingav(frame)-][m
+[31m[-    pNames = funcValues['pplots']-][m[32m{+kwargs.pop('posterior', False)+}[m
+
+    if not full: # Clip the spectral data if required[m
+        tEnd = 'trunc'[m
+[36m@@ -1027,6 +1111,9 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+    print('Run Options:\n'+'\n'.join([f"{'': <4s}{key: >20s}: {CFG[key]}" for[m
+        key in interest]))[m
+
+    [32m{+young = bool(int(CFG['fit_two_ages']))+}[m
+[32m{+    imft = bool(int(CFG['imf_type']))+}[m
+
+    binNum = VO['binNum'][m
+    nSpat = VO['xbin'].size[m
+
+[36m@@ -1047,7 +1134,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        if not afs.is_file():[m
+            print('Generating...')[m
+            outs = np.sort([xi for xi in plp.Path(curdir/'results').glob([m
+                [31m[-f"{galaxy}_SN{SN:02d}_*.mcmc")])-][m[32m{+f"{galaxy}_SN{SN:02d}_*.mcmc")])[:nSpat] # omit 'aperture'+}[m
+            ALF = dict()[m
+            for j, out in tqdm(enumerate(outs), desc='Reading ALF',[m
+                    total=nSpat):[m
+[36m@@ -1063,7 +1150,8 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+            print(f"Reading {afs}...")[m
+            ALF = au.Load.pickl(afs)[m
+
+        [32m{+#+}[m mIdx = ALF['0000'].results['Type'].tolist().index('mean')
+        [32m{+mIdx = ALF['0000'].results['Type'].tolist().index('chi2')+}[m
+        eIdx = ALF['0000'].results['Type'].tolist().index('error')[m
+
+        KIN = dict()[m
+[36m@@ -1088,21 +1176,25 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        SFH['agee'] = np.ma.ones(nSpat)*np.nan[m
+        SFH['zH'] = np.ma.ones(nSpat)*np.nan[m
+        SFH['zHe'] = np.ma.ones(nSpat)*np.nan[m
+        [32m{+SFH['FeH'] = np.ma.ones(nSpat)*np.nan+}[m
+[32m{+        SFH['FeHe'] = np.ma.ones(nSpat)*np.nan+}[m
+        SFH['yage'] = np.ma.ones(nSpat)*np.nan[m
+        SFH['yagee'] = np.ma.ones(nSpat)*np.nan[m
+        SFH['fyage'] = np.ma.ones(nSpat)*np.nan[m
+        SFH['fyagee'] = np.ma.ones(nSpat)*np.nan[m
+        SFH['abundances'] = dict()[m
+        aLabels = [31m[-[r'$[{\rm Fe/H}]$', r'$[\alpha{\rm-][m[32m{+[r'$[\alpha{\rm+}[m /Fe}]$', r'$[{\rm [31m[-C/Fe}]$',-][m[32m{+C/H}]$',+}[m
+            r'$[{\rm [31m[-N/Fe}]$',-][m[32m{+N/H}]$',+}[m r'$[{\rm [31m[-Na/Fe}]$',-][m[32m{+Na/H}]$',+}[m r'$[{\rm [31m[-Mg/Fe}]$',-][m[32m{+Mg/H}]$',+}[m
+            r'$[{\rm [31m[-Si/Fe}]$',-][m[32m{+Si/H}]$',+}[m r'$[{\rm [31m[-K/Fe}]$',-][m[32m{+K/H}]$',+}[m r'$[{\rm [31m[-Ca/Fe}]$',-][m[32m{+Ca/H}]$',+}[m
+            r'$[{\rm [31m[-Ti/Fe}]$',-][m[32m{+Ti/H}]$',+}[m r'$[{\rm [31m[-V/Fe}]$',-][m[32m{+V/H}]$',+}[m r'$[{\rm [31m[-Cr/Fe}]$',-][m[32m{+Cr/H}]$',+}[m
+            r'$[{\rm [31m[-Mn/Fe}]$',-][m[32m{+Mn/H}]$',+}[m r'$[{\rm [31m[-Co/Fe}]$',-][m[32m{+Co/H}]$',+}[m r'$[{\rm [31m[-Ni/Fe}]$',-][m[32m{+Ni/H}]$',+}[m
+            r'$[{\rm [31m[-Cu/Fe}]$',-][m[32m{+Cu/H}]$',+}[m r'$[{\rm [31m[-Sr/Fe}]$',-][m[32m{+Sr/H}]$',+}[m r'$[{\rm [31m[-Ba/Fe}]$',-][m[32m{+Ba/H}]$',+}[m
+            r'$[{\rm [31m[-Eu/Fe}]$']-][m[32m{+Eu/H}]$']+}[m
+        aMask = [ki for ki, key in enumerate(np.take(_popKeys,[m
+            [31m[-np.arange(1,-][m[32m{+np.arange(2,+}[m 20)+1)) if [31m[-key-][m[32m{+(key+}[m in [31m[-ALF['0000'].labels]-][m[32m{+ALF['0000'].labels) and+}[m
+[32m{+            (np.ptp([ALF[f"{aper:04d}"].results[key][mIdx] for aper in+}[m
+[32m{+                range(nSpat)]) > 1e-3)]+}[m
+        aKeys = np.take(np.take(_popKeys, [31m[-np.arange(1,-][m[32m{+np.arange(2,+}[m 20)+1), aMask)
+        aLabels = np.take(aLabels, aMask)[m
+        SFH['abundances']['keys'] = aKeys[m
+        SFH['abundances']['labels'] = aLabels[m
+[36m@@ -1150,6 +1242,8 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+                10.0**(ALF[f"{aper:04d}"].results['logfy'][eIdx])[m
+            SFH['zH'][aper] = ALF[f"{aper:04d}"].results['zH'][mIdx][m
+            SFH['zHe'][aper] = ALF[f"{aper:04d}"].results['zH'][eIdx][m
+            [32m{+SFH['FeH'][aper] = ALF[f"{aper:04d}"].results['FeH'][mIdx]+}[m
+[32m{+            SFH['FeHe'][aper] = ALF[f"{aper:04d}"].results['FeH'][eIdx]+}[m
+            # MLa = au.getM2L('solar',[m
+            #     ALF[f"{aper:04d}"].results['logage'][mIdx], SFH['zH'][aper],[m
+            #     SFH['IMF']['1'][aper], SFH['IMF']['2'][aper], 2.3, RZ=RZ,[m
+[36m@@ -1173,6 +1267,8 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+    gfs = curdir.parent/'muse'/'obsData'/f"{galaxy}.xz"[m
+    gal = au.Load.lzma(gfs)[m
+
+    [32m{+aKeys = SFH['abundances']['keys']+}[m
+
+    if contours:[m
+        fluxii = pf.open(mDir/f"collapsed.fits")[0].data[m
+        flux = np.compress(goods, np.compress(sele, fluxii.ravel()))[m
+[36m@@ -1271,7 +1367,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        mome += [fr"h{j+3:d}"][m
+        units += [''][m
+
+    if 'kin' in [31m[-pNames:-][m[32m{+pplots:+}[m
+        gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)[m
+        fig = plt.figure(figsize=plt.figaspect(aspect)*1.5)[m
+        for mm in tqdm(range(nMom)):[m
+[36m@@ -1280,7 +1376,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+            lab = r'\ '.join([ql for ql in [mome[mm], units[mm]] if ql != ''])[m
+
+            img = dpp(xpix, ypix, (KIN[f"{mm+1:d}"][binNum]), pixelsize=pixs,[m
+                vmin=lmi, vmax=lma, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+            ax.set_xlim(xmin, xmax)[m
+            ax.set_ylim(ymin, ymax)[m
+            ax.add_patch(copy(pPatch))[m
+[36m@@ -1298,7 +1394,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+            lT.set_path_effects([m
+                [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+            cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+                rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+            cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+                rotation=270, color='black', transform=cax.transAxes)[m
+            cb.set_ticks([])[m
+[36m@@ -1323,7 +1419,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        fig.savefig(mDir/f"kinematics_4_SN{SN:02d}")[m
+        plt.close('all')[m
+
+    if 'err' in [31m[-pNames:-][m[32m{+pplots:+}[m
+        gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)[m
+        fig = plt.figure(figsize=plt.figaspect(aspect)*1.5)[m
+
+[36m@@ -1346,7 +1442,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+                units[mm]] if ql != ''])[m
+
+            img = dpp(xpix, ypix, (KIN[f"{mm+1:d}e"][binNum]), pixelsize=pixs,[m
+                vmin=emin, vmax=emax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+            ax.set_xlim(xmin, xmax)[m
+            ax.set_ylim(ymin, ymax)[m
+            ax.add_patch(copy(pPatch))[m
+[36m@@ -1364,7 +1460,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+            lT.set_path_effects([m
+                [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+            cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+                rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+            cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+                rotation=270, color='black', transform=cax.transAxes)[m
+            cb.set_ticks([])[m
+[36m@@ -1389,7 +1485,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        fig.savefig(mDir/f"kinematicErrors_4_SN{SN:02d}")[m
+        plt.close('all')[m
+
+    if 'age' in [31m[-pNames:-][m[32m{+pplots:+}[m
+        mwage = np.ma.average(np.column_stack((SFH['age'], SFH['yage'])),[m
+            weights=np.column_stack((1-SFH['fyage'], SFH['fyage'])), axis=1)[m
+        mmin, mmax = POT.sigClip(mwage, 'mwage', clipBins=0.05)[m
+[36m@@ -1397,19 +1493,17 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        jmin, jmax = POT.sigClip(SFH['yage'], 'yage', clipBins=0.05)[m
+        fmin, fmax = POT.sigClip(SFH['fyage'], 'fyage', clipBins=0.05)[m
+
+[31m[-        young = bool(int(CFG['fit_two_ages']))-][m
+
+        if young:[m
+            gs = gridspec.GridSpec(2, 2, hspace=0.0, wspace=0.0)[m
+            mainAge = mwage[m
+        else:[m
+            gs = gridspec.GridSpec(1, 1, hspace=0.0, wspace=0.0)[m
+            mainAge = SFH['age'][m
+        fig = [31m[-plt.figure(figsize=plt.figaspect(yLen/xLen)*1.5)-][m[32m{+plt.figure(figsize=plt.figaspect(yLen/xLen))+}[m
+
+        ax = fig.add_subplot(gs[0])[m
+        img = dpp(xpix, ypix, mainAge[binNum], pixelsize=pixs, vmin=mmin,[m
+            vmax=mmax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+        ax.set_xlim(xmin, xmax)[m
+        ax.set_ylim(ymin, ymax)[m
+        ax.add_patch(copy(pPatch))[m
+[36m@@ -1424,13 +1518,13 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        maText = POT.prec(pren, mmax)[m
+        cax = POT.attachAxis(ax, 'right', 0.05, mid=True)[m
+        cb = plt.colorbar(img, cax=cax)[m
+        lT = cax.text(0.5, 0.5, [31m[-fr"$\langle-][m[32m{+rf"$\langle+}[m t\rangle\ [{UTS.gyr}]$",
+            va='center', ha='center', rotation=270, color=POT.lmagen,[m
+            transform=cax.transAxes)[m
+        lT.set_path_effects([m
+            [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+        cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+            rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+        cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+            rotation=270, color='black', transform=cax.transAxes)[m
+        cb.set_ticks([])[m
+[36m@@ -1439,7 +1533,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        if young:[m
+            ax = fig.add_subplot(gs[1])[m
+            img = dpp(xpix, ypix, SFH['age'][binNum], pixelsize=pixs, vmin=amin,[m
+                vmax=amax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+            ax.set_xlim(xmin, xmax)[m
+            ax.set_ylim(ymin, ymax)[m
+            ax.add_patch(copy(pPatch))[m
+[36m@@ -1460,7 +1554,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+            lT.set_path_effects([m
+                [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+            cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+                rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+            cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+                rotation=270, color='black', transform=cax.transAxes)[m
+            cb.set_ticks([])[m
+[36m@@ -1468,7 +1562,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+
+            ax = fig.add_subplot(gs[2])[m
+            img = dpp(xpix, ypix, SFH['yage'][binNum], pixelsize=pixs,[m
+                vmin=jmin, vmax=jmax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+            ax.set_xlim(xmin, xmax)[m
+            ax.set_ylim(ymin, ymax)[m
+            ax.add_patch(copy(pPatch))[m
+[36m@@ -1489,7 +1583,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+            lT.set_path_effects([m
+                [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+            cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+                rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+            cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+                rotation=270, color='black', transform=cax.transAxes)[m
+            cb.set_ticks([])[m
+[36m@@ -1497,7 +1591,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+
+            ax = fig.add_subplot(gs[3])[m
+            img = dpp(xpix, ypix, SFH['fyage'][binNum], pixelsize=pixs,[m
+                vmin=fmin, vmax=fmax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+            ax.set_xlim(xmin, xmax)[m
+            ax.set_ylim(ymin, ymax)[m
+            ax.add_patch(copy(pPatch))[m
+[36m@@ -1517,7 +1611,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+            lT.set_path_effects([m
+                [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+            cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+                rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+            cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+                rotation=270, color='black', transform=cax.transAxes)[m
+            cb.set_ticks([])[m
+[36m@@ -1533,12 +1627,13 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        fig.savefig(mDir/f"afh_age_SN{SN:02d}")[m
+        plt.close('all')[m
+
+    if 'metal' in [31m[-pNames:-][m[32m{+pplots:+}[m
+        amin, amax = [31m[-POT.sigClip(SFH['zH'],-][m[32m{+POT.sigClip(SFH['FeH'],+}[m 'metal',
+            clipBins=0.05)
+        fig = plt.figure(figsize=plt.figaspect(yLen/xLen))[m
+        ax = fig.gca()[m
+        img = dpp(xpix, ypix, [31m[-SFH['zH'][binNum],-][m[32m{+SFH['FeH'][binNum],+}[m pixelsize=pixs,
+            vmin=amin, vmax=amax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+        ax.set_xlim(xmin, xmax)[m
+        ax.set_ylim(ymin, ymax)[m
+        ax.add_patch(copy(pPatch))[m
+[36m@@ -1550,13 +1645,13 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        maText = POT.prec(pren, amax)[m
+        cax = POT.attachAxis(ax, 'right', 0.05)[m
+        cb = plt.colorbar(img, cax=cax)[m
+        lT = cax.text(0.5, 0.5, [31m[-fr"$[Z/H]$",-][m[32m{+r'$[\mathrm{Fe/H}]$',+}[m va='center',
+            ha='center', rotation=270, color=POT.lmagen,[m
+            transform=cax.transAxes)[m
+        lT.set_path_effects([m
+            [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+        cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+            rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+        cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+            rotation=270, color='black', transform=cax.transAxes)[m
+        cb.set_ticks([])[m
+[36m@@ -1568,40 +1663,48 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        fig.savefig(mDir/f"afh_metal_SN{SN:02d}")[m
+        plt.close('all')[m
+
+    if 'imf' in [31m[-pNames:-][m[32m{+pplots:+}[m
+
+        IMF1 = np.ma.masked_equal(SFH['IMF']['1'], 1)[m
+[31m[-        IMF2 = np.ma.masked_equal(SFH['IMF']['2'], 1)-][m
+        im1 = np.ma.getmaskarray(IMF1)[m
+[31m[-        im2 = np.ma.getmaskarray(IMF2)-][m
+        IMF1[im1] = IMF1.data[im1] + ((np.random.ranf()-0.5)*1e-3)[m
+        [31m[-IMF2[im2] = IMF2.data[im2] + ((np.random.ranf()-0.5)*1e-3)-][m
+[31m[-        imfs = [pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.0),-][m
+[31m[-            slopes=(x1, x2, 2.3)) for (x1, x2) in zip(IMF1, IMF2)]-][m
+[31m[-        xiTop = np.array(list(map(lambda imf: imf.integrate(-][m
+[31m[-            mlow=0.2, mhigh=0.5)[0], imfs)))-][m
+[31m[-        xiBot = np.array(list(map(lambda imf: imf.integrate(-][m
+[31m[-            mlow=0.2, mhigh=1.0)[0], imfs)))-][m
+[31m[-        xi = xiTop/xiBot-][m
+
+[31m[-        i1min, i1max = POT.sigClip(IMF1, 'IMF', clipBins=0.025)-][m
+[31m[-        i2min, i2max = POT.sigClip(IMF2, 'IMF', clipBins=0.025)-][m
+[31m[-        imin = np.min((i1min, i2min))-][m[32m{+imin,+}[m imax = [31m[-np.min((i1max, i2max))-][m
+[31m[-        amin, amax = POT.sigClip(xi,-][m[32m{+POT.sigClip(IMF1,+}[m 'IMF', clipBins=0.025)[31m[-gs = gridspec.GridSpec(2, 2, hspace=0.0, wspace=0.0)-][m
+[31m[-        fig = plt.figure(figsize=plt.figaspect(yLen/xLen)*1.5)-][m
+
+        [32m{+fig = plt.figure(figsize=plt.figaspect(yLen/xLen))+}[m
+
+[32m{+        if imft == 1 or imft == 3:+}[m
+[32m{+            IMF2 = np.ma.masked_equal(SFH['IMF']['2'], 1)+}[m
+[32m{+            im2 = np.ma.getmaskarray(IMF2)+}[m
+[32m{+            IMF2[im2] = IMF2.data[im2] + ((np.random.ranf()-0.5)*1e-3)+}[m
+[32m{+            imfs = [pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.0),+}[m
+[32m{+                slopes=(x1, x2, 2.3)) for (x1, x2) in zip(IMF1, IMF2)]+}[m
+[32m{+            xiTop = np.array(list(map(lambda imf: imf.integrate(+}[m
+[32m{+                mlow=0.2, mhigh=0.5)[0], imfs)))+}[m
+[32m{+            xiBot = np.array(list(map(lambda imf: imf.integrate(+}[m
+[32m{+                mlow=0.2, mhigh=1.0)[0], imfs)))+}[m
+[32m{+            xi = xiTop/xiBot+}[m
+
+[32m{+            i2min, i2max = POT.sigClip(IMF2, 'IMF', clipBins=0.025)+}[m
+[32m{+            imin = np.min((imin, i2min))+}[m
+[32m{+            imax = np.max((imax, i2max))+}[m
+[32m{+            amin, amax = POT.sigClip(xi, 'IMF', clipBins=0.025)+}[m
+[32m{+            gs = gridspec.GridSpec(2, 2, hspace=0.0, wspace=0.0)+}[m
+
+            ax = fig.add_subplot(gs[0])
+            [32m{+lT = ax.text(1e-3, 1-1e-3, r'$\alpha_1$', va='top', ha='left',+}[m
+[32m{+            color=POT.lmagen, transform=ax.transAxes, zorder=200)+}[m
+[32m{+            lT.set_path_effects(+}[m
+[32m{+                [PathEffects.withStroke(linewidth=1.75, foreground='k')])+}[m
+[32m{+        else:+}[m
+[32m{+            ax = fig.gca()+}[m
+[32m{+            ax.set_xlabel(r'$x\ [{\rm arcsec}]$', labelpad=7)+}[m
+[32m{+            ax.set_ylabel(r'$y\ [{\rm arcsec}]$', labelpad=7)+}[m
+        img = dpp(xpix, ypix, IMF1[binNum], pixelsize=pixs,[m
+            vmin=imin, vmax=imax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+        ax.set_xlim(xmin, xmax)[m
+        ax.set_ylim(ymin, ymax)[m
+        ax.add_patch(copy(pPatch))[m
+        ax.set_xticklabels([])[m
+[31m[-        lT = ax.text(1e-3, 1-1e-3, r'$x_1$', va='top', ha='left',-][m
+[31m[-            color=POT.lmagen, transform=ax.transAxes, zorder=200)-][m
+[31m[-        lT.set_path_effects(-][m
+[31m[-            [PathEffects.withStroke(linewidth=1.75, foreground='k')])-][m
+        if contours:[m
+            ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,[m
+                levels=flevels)[m
+[36m@@ -1610,76 +1713,81 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        maText = POT.prec(pren, imax)[m
+        cax = POT.attachAxis(ax, 'right', 0.05, mid=True)[m
+        cb = plt.colorbar(img, cax=cax)[m
+        lT = cax.text(0.5, 0.5, [31m[-fr"$x_i$",-][m[32m{+r'$\alpha$',+}[m va='center',
+            ha='center', rotation=270, color=POT.lmagen,[m
+            transform=cax.transAxes)[m
+        lT.set_path_effects([m
+            [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+        cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+            rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+        cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+            rotation=270, color='black', transform=cax.transAxes)[m
+        cb.set_ticks([])[m
+        cax.set_zorder(100)[m
+
+        [32m{+if imft == 1 or imft == 3:+}[m
+            ax = fig.add_subplot(gs[1])
+            img = dpp(xpix, ypix, IMF2[binNum], pixelsize=pixs,
+                vmin=imin, vmax=imax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+            ax.set_xlim(xmin, xmax)
+            ax.set_ylim(ymin, ymax)
+            ax.add_patch(copy(pPatch))
+            ax.set_yticklabels([])
+            lT = ax.text(5e-2, 1-1e-3, [31m[-r'$x_2$',-][m[32m{+r'$\alpha_2$',+}[m va='top', ha='left',
+                color=POT.lmagen, transform=ax.transAxes, zorder=200)
+            lT.set_path_effects(
+                [PathEffects.withStroke(linewidth=1.75, foreground='k')])
+            if contours:
+                ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
+                    levels=flevels)
+            
+            ax = fig.add_subplot(gs[2])
+            img = dpp(xpix, ypix, xi[binNum], pixelsize=pixs,
+                vmin=amin, vmax=amax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+            ax.set_xlim(xmin, xmax)
+            ax.set_ylim(ymin, ymax)
+            ax.add_patch(copy(pPatch))
+            lT = ax.text(1e-3, 1-1e-3, r'$\xi$', va='top', ha='left',
+                color=POT.lmagen, transform=ax.transAxes, zorder=200)
+            lT.set_path_effects(
+                [PathEffects.withStroke(linewidth=1.75, foreground='k')])
+            if contours:
+                ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
+                    levels=flevels)
+
+            miText = POT.prec(pren, amin)
+            maText = POT.prec(pren, amax)
+            cax = POT.attachAxis(ax, 'right', 0.05, mid=True)
+            cb = plt.colorbar(img, cax=cax)
+            lT = cax.text(0.5, 0.5, [31m[-fr"$\xi$",-][m[32m{+r'$\xi$',+}[m va='center',
+                ha='center', rotation=270, color=POT.lmagen,
+                transform=cax.transAxes)
+            lT.set_path_effects(
+                [PathEffects.withStroke(linewidth=1.5, foreground='k')])
+            cax.text(0.5, 1e-3, miText, va='bottom', ha='center',
+                rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+            cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',
+                rotation=270, color='black', transform=cax.transAxes)
+            cb.set_ticks([])
+            cax.set_zorder(100)
+
+            [31m[-ax.set_xlabel(r'$x\-][m[32m{+BIG = fig.add_subplot(gs[:])+}[m
+[32m{+            BIG.set_frame_on(False)+}[m
+[32m{+            BIG.set_xticks([])+}[m
+[32m{+            BIG.set_yticks([])+}[m
+[32m{+            BIG.set_xlabel(r'$x\+}[m [{\rm arcsec}]$', [31m[-labelpad=7)-][m
+[31m[-        ax.set_ylabel(r'$y\-][m[32m{+labelpad=25)+}[m
+[32m{+            BIG.set_ylabel(r'$y\+}[m [{\rm arcsec}]$', [31m[-labelpad=7)-][m[32m{+labelpad=25)+}[m
+
+        fig.savefig(mDir/f"afh_IMF_SN{SN:02d}")[m
+        plt.close('all')[m
+
+    if 'ml' in [31m[-pNames:-][m[32m{+pplots:+}[m
+
+        amin, amax = POT.sigClip(SFH['ML'][band], f'ML_{band}', clipBins=0.05)[m
+        fig = plt.figure(figsize=plt.figaspect(yLen/xLen))[m
+        ax = fig.gca()[m
+        img = dpp(xpix, ypix, SFH['ML'][band][binNum], pixelsize=pixs,[m
+            vmin=amin, vmax=amax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+        ax.set_xlim(xmin, xmax)[m
+        ax.set_ylim(ymin, ymax)[m
+        ax.add_patch(copy(pPatch))[m
+[36m@@ -1691,13 +1799,13 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        maText = POT.prec(pren, amax)[m
+        cax = POT.attachAxis(ax, 'right', 0.05)[m
+        cb = plt.colorbar(img, cax=cax)[m
+        lT = cax.text(0.5, 0.5, [31m[-fr"$M/L_{{{band}}}\-][m[32m{+rf"$M/L_{{{band}}}\+}[m [{UTS.msun}/{UTS.lsun}]$",
+            va='center', ha='center', rotation=270, color=POT.lmagen,[m
+            transform=cax.transAxes)[m
+        lT.set_path_effects([m
+            [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+        cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+            rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+        cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+            rotation=270, color='black', transform=cax.transAxes)[m
+        cb.set_ticks([])[m
+[36m@@ -1709,8 +1817,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        fig.savefig(mDir/f"afh_ML{band}_SN{SN:02d}")[m
+        plt.close('all')[m
+
+    if 'abund' in [31m[-pNames:-][m
+[31m[-        aKeys = SFH['abundances']['keys']-][m[32m{+pplots:+}[m
+        nAbund = len(aKeys)[m
+        dim = np.ceil(np.sqrt(nAbund)).astype(int)[m
+        rema = nAbund % dim[m
+[36m@@ -1728,7 +1835,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+            amin, amax = POT.sigClip(abund, key, clipBins=0.05)[m
+            ax = main.add_subplot(gs[ai])[m
+            img = dpp(xpix, ypix, abund[binNum], pixelsize=pixs,[m
+                vmin=amin, vmax=amax, [31m[-angle=PA)-][m[32m{+angle=PA, cmap=icefire)+}[m
+            ax.set_xlim(xmin, xmax)[m
+            ax.set_ylim(ymin, ymax)[m
+            ax.add_patch(copy(pPatch))[m
+[36m@@ -1748,7 +1855,7 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+            lT.set_path_effects([m
+                [PathEffects.withStroke(linewidth=1.5, foreground='k')])[m
+            cax.text(0.5, 1e-3, miText, va='bottom', ha='center',[m
+                rotation=270, [31m[-color='white',-][m[32m{+color='black',+}[m transform=cax.transAxes)
+            cax.text(0.5, 1.-1e-3, maText, va='top', ha='center',[m
+                rotation=270, color='black', transform=cax.transAxes)[m
+            cb.set_ticks([])[m
+[36m@@ -1764,83 +1871,404 @@[m [mdef afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,[m
+        main.savefig(mDir/f"afh_elements_SN{SN:02d}")[m
+        plt.close('all')[m
+
+    [31m[-main-][m[32m{+if 'radial' in pplots:+}[m
+[32m{+        if posterior:+}[m
+[32m{+            posfn+}[m = [31m[-plt.figure(figsize=plt.figaspect(0.6)*1.3)-][m
+[31m[-        ax-][m[32m{+mDir/f"afh_elements_posteriors_SN{SN:02d}.xz"+}[m
+[32m{+            nPost+}[m = [31m[-main.gca()-][m[32m{+100+}[m
+[32m{+            if not posfn.is_file():+}[m
+[32m{+                outs = np.sort([xi for xi in plp.Path(curdir/'results').glob(+}[m
+[32m{+                    f"{galaxy}_SN{SN:02d}_*.mcmc")])[:nSpat] # omit 'aperture'+}[m
+[32m{+                pKeys = np.append(aKeys, ['logage', 'FeH', 'IMF1'])+}[m
+[32m{+                if imft == 1 or imft == 3:+}[m
+[32m{+                    pKeys = np.append(pKeys, 'IMF2')+}[m
+[32m{+                maps = dict()+}[m
+[32m{+                for ai, key in enumerate(pKeys):+}[m
+[32m{+                    maps[key] = np.ma.ones((nSpat, nPost))*np.nan+}[m
+[32m{+                maps['ML'] = np.ma.ones((nSpat, nPost))*np.nan+}[m
+[32m{+                for j, out in tqdm(enumerate(outs), total=nSpat,+}[m
+[32m{+                    desc='Generating posterior samples'):+}[m
+[32m{+                    alf = Alf(out.parent/out.stem, mPath=out.parent)+}[m
+[32m{+                    alf.get_total_met()+}[m
+[32m{+                    alf.normalize_spectra()+}[m
+[32m{+                    alf.abundance_correct()+}[m
+[32m{+                    for ai, key in enumerate(pKeys):+}[m
+[32m{+                        aidx = alfFP.index(key)+}[m
+[32m{+                        maps[key][j, :] = np.random.choice(alf.mcmc[:, aidx],+}[m
+[32m{+                            nPost, replace=False)+}[m
+[32m{+                    maps['ML'][j, :] = au.getM2L(f"{galaxy}_SN{SN:02d}_{j:04d}",+}[m
+[32m{+                        np.random.choice(alf.mcmc[:, alfFP.index('logage')],+}[m
+[32m{+                            nPost, replace=False),+}[m
+[32m{+                        np.random.choice(alf.mcmc[:, alfFP.index('zH')],+}[m
+[32m{+                            nPost, replace=False),+}[m
+[32m{+                        np.random.choice(alf.mcmc[:, alfFP.index('IMF1')],+}[m
+[32m{+                            nPost, replace=False),+}[m
+[32m{+                        np.random.choice(alf.mcmc[:, alfFP.index('IMF2')],+}[m
+[32m{+                            nPost, replace=False),+}[m
+[32m{+                        np.repeat(2.3, nPost), RZ=RZ, band=band, **kwargs)+}[m
+[32m{+                au.Write.lzma(posfn, maps)+}[m
+[32m{+            else:+}[m
+[32m{+                maps = au.Load.lzma(posfn)+}[m
+[32m{+        nrad = 12+}[m
+        eps = [31m[-gal['sMGE'].epsE-][m[32m{+1.-gal['sMGE'].epsE+}[m
+        rade = np.sqrt(xbin**2 + (ybin/eps)**2)[m
+        rore = np.argsort(rade)[m
+        rade = np.ma.masked_invalid(np.log10(rade[rore]))[m
+        medBins = [31m[-np.linspace(np.ma.min(rade), np.ma.max(rade), 11)-][m[32m{+np.linspace(*POT.sigClip(rade, 'radius', 0.1), nrad+1)+}[m
+        delta = medBins[1:] - medBins[:-1][m
+        idx = np.digitize(rade, medBins[1:])[m
+        pBins = medBins[1:] - delta/2[m
+        [31m[-colmar = mc_list-][m[32m{+symbs+}[m = [31m[-list(itertools.product(['X',-][m[32m{+['X',+}[m 'p', '^', '<', '>',[31m[-'1',-][m
+[31m[-            '2', '3', '4',-][m '8', 's', 'D', 'P', '*', 'h', 'H',
+            '+', 'x', 'o', [31m[-'v'], plt.rcParams['axes.prop_cycle'].by_key()['color']))-][m[32m{+'v', '1', '2', '3', '4']+}[m
+[32m{+        colos = plt.rcParams['axes.prop_cycle'].by_key()['color']+}[m
+[32m{+        # dcols = np.tile(plt.rcParams['axes.prop_cycle'].by_key()[+}[m
+[32m{+            # 'color'][::-1], 3)[:len(symbs)]+}[m
+[32m{+        # colmar = [pair for pair in zip(symbs, dcols)]+}[m
+[32m{+        main = plt.figure(figsize=plt.figaspect(1.5)*1.15)+}[m
+[32m{+        gs = gridspec.GridSpec(6, 1, hspace=0.0, wspace=0.0)+}[m
+[32m{+        ai = 0+}[m
+
+[32m{+        ax = main.add_subplot(gs[0])+}[m
+[32m{+        mkr = symbs[ai]+}[m
+[32m{+        col = 'r'+}[m
+[32m{+        amed = np.array([np.ma.median(SFH['age'][idx==k]) for k in+}[m
+[32m{+            range(nrad)])+}[m
+[32m{+        amed = np.ma.masked_invalid(amed)+}[m
+[32m{+        amask = ~np.ma.getmaskarray(amed)+}[m
+[32m{+        if posterior:+}[m
+[32m{+            ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)+}[m
+[32m{+            ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)+}[m
+[32m{+            ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,+}[m
+[32m{+                linewidth=0.75, edgecolors='k', s=70, zorder=50,+}[m
+[32m{+                label=rf"$\langle t\rangle\ [{UTS.gyr}]$")+}[m
+[32m{+            for jp in range(nPost):+}[m
+[32m{+                pamed = np.array([np.ma.median(maps['logage'][:, jp][idx==k])+}[m
+[32m{+                    for k in range(nrad)])+}[m
+[32m{+                pamed = np.ma.masked_invalid(pamed)+}[m
+[32m{+                ax.plot(pBins[amask], 10.0**pamed[amask], alpha=0.2, lw=0.2,+}[m
+[32m{+                    c=col, zorder=0)+}[m
+[32m{+        else:+}[m
+[32m{+            ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],+}[m
+[32m{+                marker=mkr, mfc=col, mew=0.75, mec='k', ecolor=col, ms=12,+}[m
+[32m{+                label=rf"$\langle t\rangle\ [{UTS.gyr}]$",+}[m
+[32m{+                zorder=50)+}[m
+[32m{+            aerr = np.array([np.ma.std(SFH['age'][idx==k]) for k in+}[m
+[32m{+                range(nrad)])/2.+}[m
+[32m{+            ax.fill_between(pBins[amask], amed[amask]+aerr[amask],+}[m
+[32m{+                amed[amask]-aerr[amask], alpha=0.1, color=col)+}[m
+[32m{+        ax.set_xlim(right=rade.max()*1.15)+}[m
+[32m{+        # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')+}[m
+[32m{+        ax.set_ylabel(rf"$\langle t\rangle\ [{UTS.gyr}]$")+}[m
+[32m{+        kpAx = ax.twiny()+}[m
+[32m{+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *+}[m
+[32m{+            1e-3))+}[m
+[32m{+        kpAx.set_xlabel(fr"$\log_{{10}}(r\ [{UTS.kpace}])$")+}[m
+[32m{+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,+}[m
+[32m{+            top=True)+}[m
+[32m{+        kpAx.xaxis.set_label_position('top')+}[m
+[32m{+        ax.set_xticklabels([])+}[m
+
+[32m{+        ax = main.add_subplot(gs[1])+}[m
+[32m{+        ai += 1+}[m
+[32m{+        mkr = symbs[ai]+}[m
+[32m{+        col = 'r'+}[m
+[32m{+        amed = np.array([np.ma.median(SFH['FeH'][idx==k]) for k in+}[m
+[32m{+            range(nrad)])+}[m
+[32m{+        amed = np.ma.masked_invalid(amed)+}[m
+[32m{+        amask = ~np.ma.getmaskarray(amed)+}[m
+[32m{+        if posterior:+}[m
+[32m{+            ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)+}[m
+[32m{+            ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)+}[m
+[32m{+            ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,+}[m
+[32m{+                linewidth=0.75, edgecolors='k', s=70, zorder=50,+}[m
+[32m{+                label=r'$[\mathrm{Fe/H}]$')+}[m
+[32m{+            for jp in range(nPost):+}[m
+[32m{+                pamed = np.array([np.ma.median(maps['FeH'][:, jp][idx==k])+}[m
+[32m{+                    for k in range(nrad)])+}[m
+[32m{+                pamed = np.ma.masked_invalid(pamed)+}[m
+[32m{+                ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,+}[m
+[32m{+                    c=col, zorder=0)+}[m
+[32m{+        else:+}[m
+[32m{+            ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],+}[m
+[32m{+                marker=mkr, mfc=col, mew=0.75, mec='k', ecolor=col, ms=12,+}[m
+[32m{+                label=r'$[\mathrm{Fe/H}]$',+}[m
+[32m{+                zorder=50)+}[m
+[32m{+            aerr = np.array([np.ma.std(SFH['FeH'][idx==k]) for k in+}[m
+[32m{+                range(nrad)])/2.+}[m
+[32m{+            ax.fill_between(pBins[amask], amed[amask]+aerr[amask],+}[m
+[32m{+                amed[amask]-aerr[amask], alpha=0.1, color=col)+}[m
+[32m{+        ax.set_xlim(right=rade.max()*1.15)+}[m
+[32m{+        # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')+}[m
+[32m{+        ax.set_ylabel(r'$[\mathrm{Fe/H}]$')+}[m
+[32m{+        kpAx = ax.twiny()+}[m
+[32m{+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *+}[m
+[32m{+            1e-3))+}[m
+[32m{+        # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")+}[m
+[32m{+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,+}[m
+[32m{+            top=True)+}[m
+[32m{+        kpAx.xaxis.set_label_position('top')+}[m
+[32m{+        ax.set_xticklabels([])+}[m
+[32m{+        kpAx.set_xticklabels([])+}[m
+
+[32m{+        ax = main.add_subplot(gs[2:4])+}[m
+        for [31m[-ai,-][m[32m{+aj,+}[m key in enumerate(aKeys):
+            [32m{+ai += 1+}[m
+            abund = SFH['abundances'][key][rore][m
+            label = [31m[-SFH['abundances']['labels'][ai]-][m[32m{+SFH['abundances']['labels'][aj]+}[m
+[32m{+            mkr = symbs[ai]+}[m
+[32m{+            col = colos[aj]+}[m
+[32m{+            amed = np.array([np.ma.median(abund[idx==k]) for k in range(nrad)])+}[m
+[32m{+            amed = np.ma.masked_invalid(amed)+}[m
+[32m{+            amask = ~np.ma.getmaskarray(amed)+}[m
+[32m{+            if posterior:+}[m
+[32m{+                ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)+}[m
+[32m{+                ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)+}[m
+[32m{+                ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,+}[m
+[32m{+                    label=label, linewidth=0.75, edgecolors='k', s=70,+}[m
+[32m{+                    zorder=len(aKeys)-aj+50)+}[m
+[32m{+                for jp in range(nPost):+}[m
+[32m{+                    pamed = np.array([np.ma.median(maps[key][:, jp][idx==k]) for+}[m
+[32m{+                        k in range(nrad)])+}[m
+[32m{+                    pamed = np.ma.masked_invalid(pamed)+}[m
+[32m{+                    ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,+}[m
+[32m{+                        c=col, zorder=0)+}[m
+[32m{+            else:+}[m
+[32m{+                ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],+}[m
+[32m{+                    marker=mkr, mfc=col, label=label, mew=0.75, mec='k',+}[m
+[32m{+                    ecolor=col, ms=12, zorder=len(aKeys)-aj)+}[m
+[32m{+                aerr = np.array([np.ma.std(abund[idx==k]) for k in+}[m
+[32m{+                    range(nrad)])/2.+}[m
+[32m{+                ax.fill_between(pBins[amask], amed[amask]+aerr[amask],+}[m
+[32m{+                    amed[amask]-aerr[amask], alpha=0.1, color=col)+}[m
+[32m{+        ax.legend(ncol=4)+}[m
+[32m{+        ax.set_xlim(right=rade.max()*1.15)+}[m
+[32m{+        ax.set_ylim(top=np.max(ax.get_ylim())*1.5)+}[m
+[32m{+        # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')+}[m
+[32m{+        ax.set_ylabel(r'${\rm Abundance}\ [{\rm dex}]$')+}[m
+[32m{+        kpAx = ax.twiny()+}[m
+[32m{+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *+}[m
+[32m{+            1e-3))+}[m
+[32m{+        # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")+}[m
+[32m{+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,+}[m
+[32m{+            top=True)+}[m
+[32m{+        kpAx.xaxis.set_label_position('top')+}[m
+[32m{+        ax.set_xticklabels([])+}[m
+[32m{+        kpAx.set_xticklabels([])+}[m
+
+[32m{+        ax = main.add_subplot(gs[4])+}[m
+[32m{+        ai += 1+}[m
+[32m{+        mkr = symbs[ai]+}[m
+[32m{+        col = 'r'+}[m
+[32m{+        amed = np.array([np.ma.median(SFH['IMF']['1'][idx==k]) for k in+}[m
+[32m{+            range(nrad)])+}[m
+[32m{+        amed = np.ma.masked_invalid(amed)+}[m
+[32m{+        amask = ~np.ma.getmaskarray(amed)+}[m
+[32m{+        if posterior:+}[m
+[32m{+            ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)+}[m
+[32m{+            ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)+}[m
+[32m{+            ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,+}[m
+[32m{+                label=r'$\alpha_1$', linewidth=0.75, edgecolors='k', s=70,+}[m
+[32m{+                zorder=50)+}[m
+[32m{+            for jp in range(nPost):+}[m
+[32m{+                pamed = np.array([np.ma.median(maps['IMF1'][:, jp][idx==k]) for+}[m
+[32m{+                    k in range(nrad)])+}[m
+[32m{+                pamed = np.ma.masked_invalid(pamed)+}[m
+[32m{+                ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,+}[m
+[32m{+                    c=col, zorder=0)+}[m
+[32m{+        else:+}[m
+[32m{+            ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],+}[m
+[32m{+                marker=mkr, mfc=col, label=r'$\alpha_1$', mew=0.75, mec='k',+}[m
+[32m{+                ecolor=col, ms=12, zorder=50)+}[m
+[32m{+            aerr = np.array([np.ma.std(SFH['IMF']['1'][idx==k]) for k in+}[m
+[32m{+                range(nrad)])/2.+}[m
+[32m{+            ax.fill_between(pBins[amask], amed[amask]+aerr[amask],+}[m
+[32m{+                amed[amask]-aerr[amask], alpha=0.1, color=col)+}[m
+[32m{+        if imft == 1 or imft == 3:+}[m
+[32m{+            ai += 1+}[m
+            mkr, col = colmar[ai][m
+            amed = [31m[-np.array([np.ma.median(abund[idx==k])-][m[32m{+np.array([np.ma.median(SFH['IMF']['2'][idx==k])+}[m for k in
+                [31m[-range(10)])-][m[32m{+range(nrad)])+}[m
+[32m{+            amed = np.ma.masked_invalid(amed)+}[m
+[32m{+            amask = ~np.ma.getmaskarray(amed)+}[m
+[32m{+            if posterior:+}[m
+[32m{+                ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)+}[m
+[32m{+                ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)+}[m
+[32m{+                ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,+}[m
+[32m{+                    label=r'$\alpha_2$', linewidth=0.75, edgecolors='k', s=70,+}[m
+[32m{+                    zorder=50)+}[m
+[32m{+                for jp in range(nPost):+}[m
+[32m{+                    pamed = np.array([np.ma.median(maps['IMF2'][:, jp][idx==k])+}[m
+[32m{+                        for k in range(nrad)])+}[m
+[32m{+                    pamed = np.ma.masked_invalid(pamed)+}[m
+[32m{+                    ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,+}[m
+[32m{+                        c=col, zorder=0)+}[m
+[32m{+            else:+}[m
+[32m{+                ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],+}[m
+[32m{+                    marker=mkr, mfc=col, label=r'$\alpha_2$', mew=0.75, mec='k',+}[m
+[32m{+                    ecolor=col, ms=12, zorder=50)+}[m
+                aerr = [31m[-np.array([np.ma.std(abund[idx==k])-][m[32m{+np.array([np.ma.std(SFH['IMF']['2'][idx==k]) for k in+}[m
+[32m{+                    range(nrad)])/2.+}[m
+[32m{+                ax.fill_between(pBins[amask], amed[amask]+aerr[amask],+}[m
+[32m{+                    amed[amask]-aerr[amask], alpha=0.1, color=col)+}[m
+[32m{+            ax.legend(ncols=2)+}[m
+[32m{+        ax.set_xlim(right=rade.max()*1.15)+}[m
+[32m{+        # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')+}[m
+[32m{+        ax.set_ylabel(r'$\alpha$')+}[m
+[32m{+        kpAx = ax.twiny()+}[m
+[32m{+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *+}[m
+[32m{+            1e-3))+}[m
+[32m{+        # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")+}[m
+[32m{+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,+}[m
+[32m{+            top=True)+}[m
+[32m{+        kpAx.xaxis.set_label_position('top')+}[m
+[32m{+        ax.set_xticklabels([])+}[m
+[32m{+        kpAx.set_xticklabels([])+}[m
+[32m{+        +}[m
+[32m{+        ax = main.add_subplot(gs[5])+}[m
+[32m{+        ai += 1+}[m
+[32m{+        mkr = symbs[ai]+}[m
+[32m{+        col = 'r'+}[m
+[32m{+        amed = np.array([np.ma.median(SFH['ML'][band][idx==k])+}[m for k in
+            [31m[-range(10)])-][m
+[31m[-            ax.errorbar(pBins, amed, yerr=aerr,-][m[32m{+range(nrad)])+}[m
+[32m{+        amed = np.ma.masked_invalid(amed)+}[m
+[32m{+        amask = ~np.ma.getmaskarray(amed)+}[m
+[32m{+        if posterior:+}[m
+[32m{+            ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)+}[m
+[32m{+            ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)+}[m
+[32m{+            ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,+}[m
+[32m{+                linewidth=0.75, edgecolors='k', s=70, zorder=50,+}[m
+[32m{+                label=rf"$M/L_{{{band}}}\ [{UTS.msun}/{UTS.lsun}]$")+}[m
+[32m{+            for jp in range(nPost):+}[m
+[32m{+                pamed = np.array([np.ma.median(maps['ML'][:, jp][idx==k]) for+}[m
+[32m{+                    k in range(nrad)])+}[m
+[32m{+                pamed = np.ma.masked_invalid(pamed)+}[m
+[32m{+                ax.plot(pBins[amask], pamed[amask], alpha=0.2, lw=0.2,+}[m
+[32m{+                    c=col, zorder=0)+}[m
+[32m{+        else:+}[m
+[32m{+            ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],+}[m
+                marker=mkr, mfc=col,[31m[-label=label,-][m mew=0.75, mec='k', ecolor=col, ms=12,
+                [31m[-zorder=len(aKeys)-ai)-][m[32m{+label=rf"$M/L_{{{band}}}\ [{UTS.msun}/{UTS.lsun}]$",+}[m
+[32m{+                zorder=50)+}[m
+[32m{+            aerr = np.array([np.ma.std(SFH['ML'][band][idx==k]) for k in+}[m
+[32m{+                range(nrad)])/2.+}[m
+[32m{+            ax.fill_between(pBins[amask], amed[amask]+aerr[amask],+}[m
+[32m{+                amed[amask]-aerr[amask], alpha=0.1, color=col)+}[m
+        ax.set_xlim(right=rade.max()*1.15)[m
+[31m[-        ax.legend()-][m
+        ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')[m
+        [31m[-ax.set_ylabel(r'${\rm Abundance}\ [{\rm dex}]$')-][m
+[31m[-        main.savefig(mDir/f"afh_elements_radial_SN{SN:02d}.pdf", format='pdf')-][m[32m{+ax.set_ylabel(rf'$M/L_{{{band}}}$')+}[m
+[32m{+        kpAx = ax.twiny()+}[m
+[32m{+        kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *+}[m
+[32m{+            1e-3))+}[m
+[32m{+        # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")+}[m
+[32m{+        kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,+}[m
+[32m{+            top=True)+}[m
+[32m{+        kpAx.xaxis.set_label_position('top')+}[m
+[32m{+        kpAx.set_xticklabels([])+}[m
+
+[32m{+        main.savefig(mDir/f"afh_elements_radial_SN{SN:02d}.png", format='png')+}[m
+        plt.close('all')[m
+
+# ------------------------------------------------------------------------------[m
+
+def showPlots(galaxy, [31m[-aper,-][m[32m{+apers,+}[m SN=100, full=True, clabels=None,
+    pplots=['input', 'spec', 'corn', 'post', [31m[-'trace']):-][m[32m{+'trace'], dcName=''):+}[m
+    frame = incf()[m
+    funcArgs, _, _, funcValues = ingav(frame)[m
+    [31m[-pNames-][m[32m{+pplots+}[m = funcValues['pplots'][31m[-if not full: # Clip the spectral data if required-][m
+[31m[-        tEnd = 'trunc'-][m
+[31m[-    else:-][m
+[31m[-        tEnd = 'full'-][m
+
+    [31m[-ofn-][m[32m{+mDir+}[m = [31m[-curdir/'results'/f"{galaxy}_SN{SN:02d}_{aper:04d}.mcmc"-][m
+[31m[-    ifn-][m[32m{+curdir/f"{galaxy}{dcName}"+}[m
+[32m{+    cfn+}[m = [31m[-curdir/'indata'/f"{galaxy}_SN{SN:02d}_{aper:04d}.dat"-][m
+[31m[-    alf-][m[32m{+mDir/'config.xz'+}[m
+[32m{+    CFG+}[m = [31m[-Alf(ofn.parent/ofn.stem, mPath=ofn.parent)-][m
+[31m[-    alf.get_total_met()-][m
+[31m[-    alf.normalize_spectra()-][m
+[31m[-    alf.abundance_correct()-][m
+[31m[-    # alf.get_corrected_abundance_posterior()-][m[32m{+au.Load.lzma(cfn)+}[m
+
+    if isinstance(clabels, type(None)):[m
+        clabels = ['velz', 'sigma', 'h3', 'h4', 'logage', [31m[-'zh',-][m[32m{+'zH',+}[m 'IMF1', 'IMF2',]
+    [32m{+if int(CFG['imf_type']) == 0:+}[m
+[32m{+        clabels.pop(clabels.index('IMF2'))+}[m
+
+    [32m{+for aper in np.atleast_1d(apers):+}[m
+        if [31m[-'input'-][m[32m{+'aperture'+}[m in [31m[-pNames:-][m
+[31m[-        print('Plotting input spectrum...')-][m[32m{+str(aper):+}[m
+[32m{+            astr = 'aperture'+}[m
+[32m{+        else:+}[m
+[32m{+            astr = f"{aper:04d}"+}[m
+
+[32m{+        if not full: # Clip the spectral data if required+}[m
+[32m{+            tEnd = 'trunc'+}[m
+[32m{+        else:+}[m
+[32m{+            tEnd = 'full'+}[m
+[32m{+        +}[m
+[32m{+        gDir = curdir/f"{galaxy}{dcName}"+}[m
+
+[32m{+        ofn = curdir/'results'/f"{galaxy}_SN{SN:02d}_{astr}.mcmc"+}[m
+[32m{+        ifn = curdir/'indata'/f"{galaxy}_SN{SN:02d}_{astr}.dat"+}[m
+[32m{+        alf = Alf(ofn.parent/ofn.stem, mPath=ofn.parent)+}[m
+[32m{+        alf.get_total_met()+}[m
+[32m{+        alf.normalize_spectra()+}[m
+[32m{+        alf.abundance_correct()+}[m
+[32m{+        # alf.get_corrected_abundance_posterior()+}[m
+        waves, tPix, spec, err, weights, vel = au.readSpec(ifn)[m
+
+        [32m{+if 'input' in pplots:+}[m
+[32m{+            print('Plotting input spectrum...')+}[m
+            fig = plt.figure(figsize=plt.figaspect(1./10.))
+            ax = fig.gca()
+            for wpair in waves:
+                ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4))[0]
+                ax.plot(tPix[ww], spec[ww], lw=0.4, c='r')
+            ax.fill_between(tPix, weights*spec.max(), alpha=0.2, facecolor='k',
+                zorder=0)
+            [31m[-fig.savefig(curdir/galaxy/f"input_{aper:04d}")-][m[32m{+ax.set_ylim(top=(spec*weights).max()*1.1)+}[m
+[32m{+            fig.savefig(gDir/f"input_{astr}")+}[m
+        if 'spec' in [31m[-pNames:-][m[32m{+pplots:+}[m
+            print('Plotting spectral fit...')
+            [31m[-alf.plot_model(curdir/galaxy/f"specFit_{aper:04d}.pdf")-][m[32m{+alf.plot_model(gDir/f"specFit_{astr}.pdf")+}[m
+
+[32m{+            mwave, model, sinp, merr, _, mres = np.loadtxt(ofn.parent/\+}[m
+[32m{+                f"{ofn.stem}.bestspec", unpack=True)+}[m
+[32m{+            fig = plt.figure(figsize=plt.figaspect(3.0/10.))+}[m
+[32m{+            gs = gridspec.GridSpec(2, 1, hspace=0, wspace=0)+}[m
+[32m{+            ax = fig.add_subplot(gs[0, 0])+}[m
+[32m{+            for wpair in waves:+}[m
+[32m{+                ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4)+}[m
+[32m{+                    )[0]+}[m
+[32m{+                ax.plot(tPix[ww], spec[ww], lw=0.4, c='k')+}[m
+[32m{+            ax.plot(mwave, model, lw=0.4, c='r')+}[m
+[32m{+            ax.fill_between(tPix, (1.0-weights)*spec.max(), alpha=0.2,+}[m
+[32m{+                facecolor='k', zorder=0)+}[m
+[32m{+            ax.set_ylim(bottom=(spec*weights).min()*1.05,+}[m
+[32m{+                top=(spec*weights).max()*1.05)+}[m
+[32m{+            ax.set_xlim(min(mwave.min(), tPix.min())-20.,+}[m
+[32m{+                max(mwave.max(), tPix.max())+20.)+}[m
+[32m{+            ax.set_xticklabels([])+}[m
+[32m{+            ax.set_ylabel('Flux')+}[m
+
+[32m{+            ax = fig.add_subplot(gs[1, 0])+}[m
+[32m{+            mask = (tPix >= (mwave.min()-1.)) & (tPix <= (mwave.max()+1.))+}[m
+[32m{+            temp = tPix[mask][np.ma.getmaskarray(np.ma.masked_less(+}[m
+[32m{+                weights[mask], 0.5))]+}[m
+[32m{+            mwm = np.array([np.argmin(np.abs(tempi-mwave)) for tempi in temp])+}[m
+[32m{+            newm = np.zeros_like(mwave)+}[m
+[32m{+            newm[mwm] = 1+}[m
+[32m{+            residual = np.ma.masked_array((sinp-model)/sinp*100., mask=newm)+}[m
+[32m{+            ax.scatter(mwave, residual, marker='^', c='g', s=2)+}[m
+[32m{+            ax.axhline(0.0, lw=0.5, ls='--', c='grey')+}[m
+[32m{+            ax.fill_between(tPix, y1=-0.05*(1-weights), y2=0.05*(1-weights),+}[m
+[32m{+                alpha=0.2, facecolor='k', zorder=0)+}[m
+[32m{+            ax.set_xlabel(rf"Wavelength $[{UTS.angst}]$")+}[m
+[32m{+            ax.set_ylabel(r'Residual $[\%]$')+}[m
+[32m{+            ax.set_xlim(min(mwave.min(), tPix.min())-20.,+}[m
+[32m{+                max(mwave.max(), tPix.max())+20.)+}[m
+[32m{+            ax.set_ylim((-5, 5))+}[m
+[32m{+            ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))+}[m
+[32m{+            fig.savefig(gDir/f"spec_{astr}.pdf")+}[m
+        if 'corn' in [31m[-pNames:-][m[32m{+pplots:+}[m
+            print('Plotting corner...')
+            [31m[-alf.plot_corner(curdir/galaxy/f"corner_{aper:04d}",-][m[32m{+alf.plot_corner(gDir/f"corner_{astr}",+}[m clabels)
+        if 'post' in [31m[-pNames:-][m[32m{+pplots:+}[m
+            print('Plotting posteriors...')
+            [31m[-alf.plot_posterior(curdir/galaxy/f"posterior_{aper:04d}")-][m[32m{+alf.plot_posterior(gDir/f"posterior_{astr}")+}[m
+        if 'trace' in [31m[-pNames:-][m[32m{+pplots:+}[m
+            print('Plotting traces...')
+            [31m[-alf.plot_traces(curdir/galaxy/f"traces_{aper:04d}.pdf")-][m[32m{+alf.plot_traces(gDir/f"traces_{astr}.pdf")+}[m
+        plt.close('all')
+
+# ------------------------------------------------------------------------------[m
+
+[36m@@ -1915,7 +2343,7 @@[m [mdef _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,[m
+
+    frame = incf()[m
+    funcArgs, _, _, funcValues = ingav(frame)[m
+    [31m[-pNames-][m[32m{+pplots+}[m = funcValues['pplots']
+
+    VB = au.Load.lzma(vofs)[m
+    try:[m
+[36m@@ -2052,7 +2480,7 @@[m [mdef _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,[m
+        mome += [fr"h{j+3:d}"][m
+        units += [''][m
+
+    if 'kin' in [31m[-pNames:-][m[32m{+pplots:+}[m
+        gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)[m
+        fig = plt.figure(figsize=plt.figaspect(aspect)*1.5)[m
+        # double the size equally[m
+[36m@@ -2106,7 +2534,7 @@[m [mdef _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,[m
+        fig.savefig(curdir/galaxy/f"kinematics_{nMom:d}_SN{SN:02d}")[m
+        plt.close('all')[m
+
+    if 'err' in [31m[-pNames:-][m[32m{+pplots:+}[m
+        gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)[m
+        fig = plt.figure(figsize=plt.figaspect(aspect)*1.5)[m
+
+[36m@@ -2169,7 +2597,7 @@[m [mdef _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,[m
+        fig.savefig(curdir/galaxy/f"kinematicErrors_{nMom:d}_SN{SN:02d}")[m
+        plt.close('all')[m
+
+    if 'hist' in [31m[-pNames:-][m[32m{+pplots:+}[m
+        gs = gridspec.GridSpec(rDim, cDim, hspace=0.16, wspace=0.)[m
+        fig = plt.figure(figsize=plt.figaspect(rDim/float(cDim))*1.5)[m
+
+[36m@@ -2202,7 +2630,7 @@[m [mdef _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,[m
+            ax.set_yticks([])[m
+        fig.savefig(curdir/galaxy/f"kinematicErrorHists_{nMom:d}_SN{SN:02d}")[m
+
+    if 'symm' in [31m[-pNames:-][m[32m{+pplots:+}[m
+        if xLen < yLen:[m
+            cDim = np.ceil(np.sqrt(nMom)).astype(int)[m
+            rema = nMom % cDim[m
+[1mdiff --git a/alf_aperRead.py b/alf_aperRead.py[m
+[1mindex cae7e43..5eb6800 100755[m
+[1m--- a/alf_aperRead.py[m
+[1m+++ b/alf_aperRead.py[m
+[36m@@ -23,6 +23,8 @@[m
+History[m
+-------[m
+v1.0:   27 September 2022[m
+[32m{+v1.1:   Receive `dcName` command-line argument. 14 July 2023+}[m
+[32m{+v1.2:   Generate `*.bestspec2` for aperture fit. 7 November 2023+}[m
+"""[m
+from __future__ import print_function, division[m
+
+[36m@@ -34,6 +36,7 @@[m [mimport numpy as np[m
+# Custom modules[m
+from alf.Alf import Alf[m
+import alf.alf_utils as au[m
+[32m{+from alf_MUSE import makeSpecFromSum+}[m
+
+curdir = plp.Path(__file__).parent[m
+
+[36m@@ -46,6 +49,7 @@[m [mparser = argparse.ArgumentParser([m
+)[m
+parser.add_argument('-g', '--galaxy', dest='galaxy', type=str)[m
+parser.add_argument('-sn', '--SN', dest='SN', type=int)[m
+[32m{+parser.add_argument('-dc', '--dcName', dest='dcName', type=str)+}[m
+args = parser.parse_args()[m
+
+out = plp.Path(curdir/'results'/f"{args.galaxy}_SN{args.SN:02d}_aperture.mcmc")[m
+[36m@@ -66,9 +70,12 @@[m [mapSe = alf.results['sigma'][eIdx][m
+aph3e = alf.results['h3'][eIdx][m
+aph4e = alf.results['h4'][eIdx][m
+
+clabels = ['velz', 'sigma', 'h3', 'h4', 'logage', [31m[-'zh',-][m[32m{+'zH',+}[m 'IMF1', [31m[-'IMF2',]-][m
+[31m[-alf.plot_model(curdir/args.galaxy/'specFit_aperture.pdf')-][m
+[31m[-alf.plot_corner(curdir/args.galaxy/'corner_aperture',-][m[32m{+'IMF2', 'Na']+}[m
+[32m{+alf.plot_model(curdir/f"{args.galaxy}{args.dcName}"/'specFit_aperture.pdf')+}[m
+[32m{+alf.plot_corner(curdir/f"{args.galaxy}{args.dcName}"/'corner_aperture',+}[m clabels)
+
+[32m{+makeSpecFromSum(args.galaxy, args.SN, full=True, apers=['aperture'],+}[m
+[32m{+    dcName=args.dcName)+}[m
+
+print()[m
+print(f"\n{apV:.7f},{apVe:.7f},{apS:.7f},{apSe:.7f},{aph3:.7f},{aph3e:.7f},"\[m
+[1mdiff --git a/alf_utils.py b/alf_utils.py[m
+[1mindex d27b294..d3d6368 100755[m
+[1m--- a/alf_utils.py[m
+[1m+++ b/alf_utils.py[m
+[36m@@ -33,6 +33,11 @@[m [mv1.6:   Break the spectra scripts into smaller chunks. 26 October 2022[m
+v1.7:   Fixed bug in `getM2L` by using `RZ.shiftFnu` to compute the model[m
+            magnitude as well. 6 December 2022[m
+v1.8:   Run `make clean` before `make` in `alfWrite`. 8 March 2023[m
+[32m{+v1.9:   Added `oneSpec` to analyse a given spectral fit in isolation. 7 July+}[m
+[32m{+            2023+}[m
+[32m{+v1.10:  Pass `dcName` to `alf_aperRead.py` in `alfWrite`. 14 July 2023+}[m
+[32m{+v1.11:  Added much-improved `spec` figure to `oneSpec`. 16 November 2023+}[m
+[32m{+v1.12:  Vectorised `getM2L` and `getMass`. 20 December 2023+}[m
+"""[m
+from __future__ import print_function, division[m
+
+[36m@@ -54,24 +59,29 @@[m [mfrom astropy.table import Table, unique as atuni[m
+import multiprocessing as mp[m
+from scipy.special import erf as sserf[m
+from scipy.interpolate import interp1d[m
+[32m{+import matplotlib.gridspec as gridspec+}[m
+[32m{+from matplotlib import ticker+}[m
+from functools import partial[m
+from tqdm import tqdm[m
+import subprocess as sp[m
+from inspect import getargvalues as ingav, currentframe as incf[m
+from svo_filters import svo[m
+
+from [31m[-alf.scripts-][m[32m{+Alf+}[m import [31m[-read_alf as ra-][m[32m{+Alf+}[m
+
+# Custom modules[m
+from dynamics.IFU.Galaxy import Mge, Schwarzschild[m
+from dynamics.IFU.FileIO import Load, Write, Read[m
+from dynamics.IFU.Constants import Constants, [31m[-Units-][m[32m{+UnitStr+}[m
+from cythonModules import C_utils as Cu[m
+from spectres import spectres[m
+
+from plotbin.sauron_colormap import register_sauron_colormap as srsc[m
+
+curdir = plp.Path(__file__).parent[m
+
+[32m{+UTS = UnitStr()+}[m
+
+# ------------------------------------------------------------------------------[m
+
+def _ddir():[m
+[36m@@ -134,10 +144,16 @@[m [mdef prepSpec(galaxy, SN, instrument='MUSE', wRange=[4000, 10000], full=True,[m
+            np.column_stack((tPix, binSpec[:, binn], binStat[:, binn],[m
+            weights, velRes)), fmt='%20.10f',[m
+            header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")[m
+    [32m{+if 'NGC4365' in galaxy:+}[m
+[32m{+        np.savetxt(curdir/'indata'/f"{galaxy}_SN{SN:02d}_aperture.dat",+}[m
+[32m{+            np.column_stack((tPix, binSpec[:, 0], binStat[:, 0],+}[m
+[32m{+            weights, velRes)), fmt='%20.10f',+}[m
+[32m{+            header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")+}[m
+[32m{+    else:+}[m
+        np.savetxt(curdir/'indata'/f"{galaxy}_SN{SN:02d}_aperture.dat",
+            np.column_stack((tPix, VO['aperSpec'], VO['aperStat'],
+            weights, velRes)), fmt='%20.10f',
+            header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")
+
+# ------------------------------------------------------------------------------[m
+
+[36m@@ -151,30 +167,6 @@[m [mdef readSpec(afn):[m
+
+# ------------------------------------------------------------------------------[m
+
+[31m[-def alfRead():-][m
+[31m[-    outs = np.sort([xi for xi in plp.Path('results').glob('ngc4365_*.mcmc')])-][m
+[31m[-    nSpat = len(outs)-][m
+[31m[-    apers = np.array([int(out.stem.split('_')[-1]) for out in outs])-][m
+[31m[-    sore = np.argsort(apers)-][m
+[31m[-    outs = outs[sore]-][m
+[31m[-    imfs = []-][m
+[31m[-    for j, out in tqdm(enumerate(outs), total=nSpat):-][m
+[31m[-        alf = ra.Alf(out.parent/out.stem)-][m
+[31m[-        imf = pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.0),-][m
+[31m[-            slopes=(alf.results['IMF1'].data[0], alf.results['IMF2'].data[0],-][m
+[31m[-            2.3))-][m
+[31m[-        imfs += [imf]-][m
+[31m[-    xiTop = np.array(list(map(lambda imf: imf.integrate(-][m
+[31m[-        mlow=0.2, mhigh=0.5), imfs)))-][m
+[31m[-    xiBot = np.array(list(map(lambda imf: imf.integrate(-][m
+[31m[-        mlow=0.2, mhigh=1.0), imfs)))-][m
+[31m[--][m
+[31m[-    VO = Load.lzma(dDir.parent/'pxf'/'NGC4365'/'voronoi_SN100_full.xz')-][m
+[31m[-    INF = Load.lzma(dDir.parent/'muse'/'tri_models'/'fin4365'/'infil.xz')-][m
+[31m[-    pdb.set_trace()-][m
+[31m[--][m
+[31m[-# -------------------------------------------------------------------------------][m
+[31m[--][m
+def alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),[m
+    priors=True, dcName=''):[m
+
+[36m@@ -282,7 +274,7 @@[m [mdef alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),[m
+    sStr += f'export ALF_HOME={curdir}{plp.os.sep}\n\n'[m
+    sStr += u'### Compile clean version of `alf`\n'[m
+    sStr += u'cd ${ALF_HOME}src\n'[m
+    sStr += u'cp [31m[-alf.f90.perm-][m[32m{+alf.perm.f90+}[m alf.f90\n'
+    sStr += u'# Remove prior placeholders on velz\n'[m
+    sStr += u'sed -i "/prlo%velz = -999./d" alf.f90\n'[m
+    sStr += u'sed -i "/prhi%velz = 999./d" alf.f90\n'[m
+[36m@@ -296,7 +288,8 @@[m [mdef alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),[m
+    sStr += u"Ipy='ipython --pylab --pprint --autoindent'\n"[m
+    sStr += f"galax='{galaxy}'\n"[m
+    sStr += f"SN={SN:d}\n"[m
+    sStr += u'pythonOutput=$($Ipy alf_aperRead.py -- -g "$galax" -sn [31m[-"$SN")\n'-][m[32m{+"$SN" '\+}[m
+[32m{+        f'-dc "{dcName}")\n'+}[m
+    sStr += f'echo "$pythonOutput" 2>&1 | tee -a '\[m
+        f'"{galaxy}{dcName}/out_aperture.log"\n'[m
+    if priors:[m
+[36m@@ -308,7 +301,7 @@[m [mdef alfWrite(galaxy, SN, nbins, hours=48, qProps=dict(timeMax=168, module=[]),[m
+            f'"{galaxy}{dcName}/out_aperture.log"\n\n'[m
+        sStr += u'### Compile modified velocity priors\n'[m
+        sStr += u'cd src\n'[m
+        sStr += u'cp [31m[-alf.f90.perm-][m[32m{+alf.perm.f90+}[m alf.f90\n'
+        sStr += u'# `bc` arithmetic to define the lower and upper velocity bounds\n'[m
+        sStr += u'newVLo=$(bc -l <<< "(${aperKin[0]} - ${aperKin[1]}) - '\[m
+            u'5.0 * (${aperKin[2]} + ${aperKin[3]})")\n'[m
+[36m@@ -394,6 +387,8 @@[m [mdef getMass(mto, imf1, imf2, imfTop):[m
+    mlo   =   0.08 # Low-mass cut-off assumed[m
+    imfhi = 100.0  # Upper mass for integration[m
+
+    [32m{+mto, imf1, imf2, imfTop = map(np.atleast_1d, [mto, imf1, imf2, imfTop])+}[m
+
+    # normalize the weights so that 1 Msun formed at t=0[m
+    # This comes from defining the three-part piecewise linear IMF,[m
+    # N(m)=-X log(m) + c,[m
+[36m@@ -410,13 +405,15 @@[m [mdef getMass(mto, imf1, imf2, imfTop):[m
+    # and is age dependent.[m
+
+    # if mto < m3, include whole of m2<m<m3[m
+    [31m[-if mto-][m[32m{+mtl = np.where(mto+}[m < [31m[-m3:-][m
+[31m[-        getmass-][m[32m{+m3)+}[m
+[32m{+    mtg = np.where(mto >= m3)+}[m
+[32m{+    getmass[mtl]+}[m += [31m[-m2**(-imf1+imf2)*(mto**(-imf2+2)-m2**(-imf2+2))/(-imf2+2)-][m[32m{+m2**(-imf1[mtl]+imf2[mtl])*(mto[mtl]**(-imf2[mtl]+2)-m2**(+}[m
+[32m{+        -imf2[mtl]+2))/(-imf2[mtl]+2)+}[m
+    # otherwise, add the two sections up to mto[m
+    [31m[-else:-][m
+[31m[-        getmass-][m[32m{+getmass[mtg]+}[m += [31m[-m2**(-imf1+imf2)*(m3**(-imf2+2)-m2**(-imf2+2))/(-imf2+2)-][m[32m{+m2**(-imf1[mtg]+imf2[mtg])*(m3**(-imf2[mtg]+2)-m2**(+}[m
+[32m{+        -imf2[mtg]+2))/(-imf2[mtg]+2)+}[m +\
+        [31m[-m2**(-imf1+imf2)*(mto**(-imfTop+2)-m3**(-imfTop+2))/(-imfTop+2)-][m[32m{+m2**(-imf1[mtg]+imf2[mtg])*(mto[mtg]**(-imfTop[mtg]+2)-m3**(+}[m
+[32m{+        -imfTop[mtg]+2))/(-imfTop[mtg]+2)+}[m
+
+    # Normalise[m
+    getmass = getmass/imfnorm[m
+[36m@@ -441,21 +438,19 @@[m [mdef getMass(mto, imf1, imf2, imfTop):[m
+    # contribution based on the NUMBER of stars, so uses the NUMBER integral.[m
+
+    # If mto lt m3, then must consider WD stars in two segments, up to nslim.[m
+    [32m{+getmass[mtl] += 0.48*m2**(-imf1[mtl]+imf2[mtl])*(nslim**(-imfTop[mtl]+1)+}[m
+[32m{+        -m3**(-imfTop[mtl]+1))/(-imfTop[mtl]+1)/imfnorm[mtl]+}[m
+[32m{+    getmass[mtl] += 0.48*m2**(-imf1[mtl]+imf2[mtl])*(m3**(-imf2[mtl]+1)+}[m
+[32m{+        -mto[mtl]**(-imf2[mtl]+1))/(-imf2[mtl]+1)/imfnorm[mtl]+}[m
+[32m{+    getmass[mtl] += 0.077*m2**(-imf1[mtl]+imf2[mtl])*(nslim**(-imfTop[mtl]+2)+}[m
+[32m{+        -m3**(-imfTop[mtl]+2))/(-imfTop[mtl]+2)/imfnorm[mtl]+}[m
+[32m{+    getmass[mtl] += 0.077*m2**(-imf1[mtl]+imf2[mtl])*(m3**(-imf2[mtl]+2)+}[m
+[32m{+        -mto[mtl]**(-imf2[mtl]+2))/(-imf2[mtl]+2)/imfnorm[mtl]+}[m
+    # Otherwise, only the upper segment.[m
+    [31m[-if mto < m3:-][m
+[31m[-        getmass-][m[32m{+getmass[mtg]+}[m += [31m[-0.48*m2**(-imf1+imf2)*(nslim**(-imfTop+1)-m3**(-imfTop+1))/\-][m
+[31m[-            (-imfTop+1)/imfnorm-][m
+[31m[-        getmass-][m[32m{+0.48*m2**(-imf1[mtg]+imf2[mtg])*(nslim**(-imfTop[mtg]+1)+}[m
+[32m{+        -mto[mtg]**(-imfTop[mtg]+1))/(-imfTop[mtg]+1)/imfnorm[mtg]+}[m
+[32m{+    getmass[mtg]+}[m += [31m[-0.48*m2**(-imf1+imf2)*(m3**(-imf2+1)-mto**(-imf2+1))/\-][m
+[31m[-            (-imf2+1)/imfnorm-][m
+[31m[-        getmass += 0.077*m2**(-imf1+imf2)*(nslim**(-imfTop+2)-m3**(-imfTop+2))/\-][m
+[31m[-            (-imfTop+2)/imfnorm-][m
+[31m[-        getmass += 0.077*m2**(-imf1+imf2)*(m3**(-imf2+2)-mto**(-imf2+2))/\-][m
+[31m[-            (-imf2+2)/imfnorm-][m
+[31m[-    else:-][m
+[31m[-        getmass += 0.48*m2**(-imf1+imf2)*(nslim**(-imfTop+1)-mto**(-imfTop+1))/\-][m
+[31m[-            (-imfTop+1)/imfnorm-][m
+[31m[-        getmass += 0.077*m2**(-imf1+imf2)*(nslim**(-imfTop+2)-mto**(-imfTop+2)-][m
+[31m[-            )/(-imfTop+2)/imfnorm-][m[32m{+0.077*m2**(-imf1[mtg]+imf2[mtg])*(nslim**(-imfTop[mtg]+2)+}[m
+[32m{+        -mto[mtg]**(-imfTop[mtg]+2))/(-imfTop[mtg]+2)/imfnorm[mtg]+}[m
+
+    return getmass[m
+
+[36m@@ -463,6 +458,9 @@[m [mdef getMass(mto, imf1, imf2, imfTop):[m
+
+def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',[m
+        photFilt='WFPC2.F814W', **kwargs):[m
+    
+    [32m{+logage, zh, imf1, imf2, imfTop = map(np.atleast_1d, [logage, zh, imf1, imf2,+}[m
+[32m{+        imfTop])+}[m
+
+    # Variables[m
+    lsun   = 3.839e33 # Solar luminosity in erg/s[m
+[36m@@ -506,7 +504,7 @@[m [mdef getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',[m
+    tempMag = RZ.shiftFnu(nfWave, physSpec, photFilt=photFilt, **kwargs)[m
+
+    if tempMag <= 0.0:[m
+        return [31m[-0.0-][m[32m{+np.full_like(0.0, imf1)+}[m
+
+    else:[m
+        # Read in solar spectrum and generate mag sun from filter curve[m
+[36m@@ -516,10 +514,9 @@[m [mdef getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',[m
+
+        mass2light = mass / 10.0**(2./5. * (solarMag-tempMag))[m
+
+        [31m[-if mass2light > 100.0:-][m
+[31m[-            mass2light = 0.0-][m[32m{+np.ma.masked_greater(mass2light, 100.)+}[m
+
+        return [31m[-mass2light-][m[32m{+np.squeeze(mass2light)+}[m
+
+# ------------------------------------------------------------------------------[m
+
+[36m@@ -812,8 +809,7 @@[m [mdef deprojIS(sMGE, tMGE, nis=int(100), plot=True, bDir=curdir):[m
+    if plot:[m
+        import matplotlib.pyplot as plt[m
+        from mpl_toolkits.mplot3d import Axes3D[m
+[31m[-from matplotlib.gridspec import GridSpec as ggss-][m        gs = [31m[-ggss(3,-][m[32m{+gridspec.GridSpec(3,+}[m 3)
+        fig = plt.figure(figsize=plt.figaspect(1.))[m
+        for i in range(9):[m
+            ax = fig.add_subplot(gs[i], projection='3d')[m
+[36m@@ -1808,231 +1804,6 @@[m [mdef updateGal(galaxy):[m
+
+# ------------------------------------------------------------------------------[m
+
+[31m[-def quickChi2(galaxy=None, mPath=None, key=None, bML=None, SN=100,-][m
+[31m[-    full=False, redraw=False):-][m
+[31m[-    r"""-][m
+[31m[-    This function compares the model and data by producing figures of relevant-][m
+[31m[-        quantities for a specific coordinate in the parameter space-][m
+[31m[-    Args-][m
+[31m[-    -----][m
+[31m[-        galaxy (str): the galaxy name-][m
+[31m[-        mPath (str): the directory containing the input and output directories-][m
+[31m[-        key (str): an appropriately-formatted string containing part of the-][m
+[31m[-            filename of a specific model-][m
+[31m[-        nML (float): the M/L to analyse-][m
+[31m[-        SN (int): the S/N of the data-][m
+[31m[-        full (bool): toggles whether the full spectral range was used for the-][m
+[31m[-            spectral fitting-][m
+[31m[-        redraw (bool): toggles whether to read in all models-][m
+[31m[-    Returns-][m
+[31m[-    --------][m
+[31m[-        bChiR (float): the chi^2 of the kinematic moments of the best-fitting-][m
+[31m[-            model-][m
+[31m[-        bBH (float): the black-hole mass of the best-fitting model-][m
+[31m[-        bQ (float): the q value of the best-fitting model-][m
+[31m[-        bP (float): the p value of the best-fitting model-][m
+[31m[-        bU (float): the u value of the best-fitting model-][m
+[31m[-        bDM (float): the dark-matter scaling of the best-fitting model-][m
+[31m[-        bML (float): the mass-to-light ratio of the best-fitting model-][m
+[31m[-        KINCHI (arr:float): the \chi^2 measurements for all models, of shape-][m
+[31m[-            `(N,)`-][m
+[31m[-        cData (arr:float): the positions in parameter-space of all models, of-][m
+[31m[-            shape `(N, nParam)`-][m
+[31m[-    """-][m
+[31m[--][m
+[31m[-    if not mPath:-][m
+[31m[-        bDir = copy(curdir)-][m
+[31m[-    else:-][m
+[31m[-        bDir = curdir/'tri_models'/mPath-][m
+[31m[--][m
+[31m[-    try:-][m
+[31m[-        INF = Load.lzma(bDir/'infil.xz')-][m
+[31m[-        nKin = int(INF['kin']['nbins'] * INF['nn']['nGH'])-][m
+[31m[-        qMin = np.min([INF['parameters']['tMGE'].q.min(),-][m
+[31m[-            INF['parameters']['sMGE'].q.min()])-][m
+[31m[--][m
+[31m[-        Cfn = bDir/'chi2.csv'-][m
+[31m[-        Dfn = bDir/'chi2.dat'-][m
+[31m[--][m
+[31m[-        mCoords, modDirs = _coordExtr(bDir, key=key)-][m
+[31m[-        nFiles = len(mCoords)-][m
+[31m[-        if (nFiles < 1) and (not Cfn.is_file()):-][m
+[31m[-            raise RuntimeError('No completed models.')-][m
+[31m[-        print(f"Models: {nFiles:04d}")-][m
+[31m[--][m
+[31m[-        if not isinstance(key, type(None)):-][m
+[31m[-            KINCHI = np.empty(nFiles, dtype=float)-][m
+[31m[-            params = []-][m
+[31m[-            for ki, (lKey, mCoord) in enumerate(zip(modDirs, mCoords)):-][m
+[31m[-                kinChi2 = _nnProc(galaxy, mPath, lKey, method='comp')-][m
+[31m[-                KINCHI[ki] = kinChi2-][m
+[31m[-                # allCHI[ki,:] = allChi2-][m
+[31m[-                # CHI[ki] = chi2-][m
+[31m[-                params += [[kinChi2, *mCoord]]-][m
+[31m[-            chiR = KINCHI * nKin / np.nanmin(KINCHI)-][m
+[31m[--][m
+[31m[-            params = np.asarray(params)-][m
+[31m[-            mDirs = np.asarray(mCoords)-][m
+[31m[--][m
+[31m[-            if not isinstance(bML, type(None)):-][m
+[31m[-                sor = np.bitwise_or.reduce(np.apply_along_axis(-][m
+[31m[-                    lambda xn: np.isclose(xn, bML), 1, params), axis=1)-][m
+[31m[-            else:-][m
+[31m[-                sor = np.argsort(chiR)-][m
+[31m[--][m
+[31m[-            chiR = chiR[sor]-][m
+[31m[-            KINCHI = KINCHI[sor]-][m
+[31m[-            mDirs = mDirs[sor, :]-][m
+[31m[-            params = params[sor, :]-][m
+[31m[--][m
+[31m[-        elif redraw or not Cfn.is_file():-][m
+[31m[-            # CHI = np.empty(nFiles, dtype=float)-][m
+[31m[-            # allCHI = np.empty([nFiles, nGH], dtype=float)-][m
+[31m[-            KINCHI = np.empty(nFiles, dtype=float)-][m
+[31m[-            params = []-][m
+[31m[-            for ki, (lKey, mCoord) in enumerate(zip(modDirs, mCoords)):-][m
+[31m[-                kinChi2 = _nnProc(galaxy, mPath, lKey, method='comp')-][m
+[31m[-                KINCHI[ki] = kinChi2-][m
+[31m[-                # allCHI[ki,:] = allChi2-][m
+[31m[-                # CHI[ki] = chi2-][m
+[31m[-                params += [[kinChi2, *mCoord]]-][m
+[31m[-            chiR = KINCHI * nKin / np.nanmin(KINCHI)-][m
+[31m[--][m
+[31m[-            params, pindx = np.unique(params, axis=0, return_index=True)-][m
+[31m[--][m
+[31m[-            chiR = chiR[pindx]-][m
+[31m[-            KINCHI = KINCHI[pindx]-][m
+[31m[-            mDirs = np.take(mCoords, pindx, axis=0)-][m
+[31m[-            # params[:,0] = params[:,0]*nKin/np.nanmin(params[:,0])-][m
+[31m[-            nFiles = len(chiR)-][m
+[31m[--][m
+[31m[-            # Write out outputs-][m
+[31m[-            symbs = ['' for ji in freez] # `freez` includes M/L-][m
+[31m[-            symbs[-2] = '+'-][m
+[31m[-            outC = ''-][m
+[31m[-            outD = ''-][m
+[31m[-            for fi in range(nFiles):-][m
+[31m[-                outC += f"{params[fi, 0]: <.5f},{chiR[fi]: <.9f},"+\-][m
+[31m[-                    ','.join([f"{ppi: <{symbs[si]}.7f}"-][m
+[31m[-                    for si, ppi in enumerate(params[fi, 1:])])+'\n'-][m
+[31m[-                outD += f"{params[fi, 0]: <15.5f} {chiR[fi]: <19.9f} "+\-][m
+[31m[-                    ''.join([f"{ppi: <{symbs[si]}12.7f}"-][m
+[31m[-                    for si, ppi in enumerate(params[fi, 1:])])+'\n'-][m
+[31m[-            oup = open(Cfn, 'w+')-][m
+[31m[-            oup.write(f"{nFiles:05d}\n")-][m
+[31m[-            oup.write(outC)-][m
+[31m[-            oup.close()-][m
+[31m[-            oup = open(Dfn, 'w+')-][m
+[31m[-            oup.write(f"{nFiles:05d}\n")-][m
+[31m[-            oup.write(outD)-][m
+[31m[-            oup.close()-][m
+[31m[--][m
+[31m[-        else:-][m
+[31m[-            oup = open(Cfn, 'r+')-][m
+[31m[-            nDirs = int(oup.readline())-][m
+[31m[-            params = np.array([mp.strip().split(',') for mp in-][m
+[31m[-                oup.readlines()], dtype=float)-][m
+[31m[-            oup.close()-][m
+[31m[-            KINCHI = params[:, 0]-][m
+[31m[-            tempChiR = params[:, 1]-][m
+[31m[-            mDirs = params[:, 2:]-][m
+[31m[-            params = np.delete(params, 1, 1) # remove `chiR` column-][m
+[31m[-            nCFiles = KINCHI.size-][m
+[31m[--][m
+[31m[-            MCKeys = np.array([_gridKey(*mCoord) for mCoord in mCoords])-][m
+[31m[-            MDKeys = np.array([_gridKey(*mCoord) for mCoord in mDirs])-][m
+[31m[-            tdCoords = np.setdiff1d(MCKeys, MDKeys)-][m
+[31m[--][m
+[31m[-            print(f"New models: {tdCoords.size:04d}")-][m
+[31m[--][m
+[31m[-            for lKey in tdCoords:-][m
+[31m[-                lKey = rReplace(lKey, keySep, os.sep, 1)-][m
+[31m[-                mCoord = [*_deetExtr(lKey).values()]-][m
+[31m[-                kinChi2 = _nnProc(galaxy, mPath, lKey, method='comp')-][m
+[31m[-                KINCHI = np.append(KINCHI, kinChi2)-][m
+[31m[-                # allCHI = np.append( allCHI, [allChi2], axis=0 )-][m
+[31m[-                # CHI = np.append( CHI, chi2 )-][m
+[31m[-                params = np.append(params, [[kinChi2, *mCoord]], axis=0)-][m
+[31m[-                mDirs = np.append(mDirs, [[*mCoord]], axis=0)-][m
+[31m[--][m
+[31m[-            chiR = params[:, 0]*nKin/np.nanmin(params[:, 0])-][m
+[31m[--][m
+[31m[-            params, pindx = np.unique(params, axis=0, return_index=True)-][m
+[31m[--][m
+[31m[-            chiR = chiR[pindx]-][m
+[31m[-            KINCHI = KINCHI[pindx]-][m
+[31m[-            mDirs = np.take(mDirs, pindx, axis=0)-][m
+[31m[-            nFiles = params.shape[0]-][m
+[31m[--][m
+[31m[-            # Write out outputs-][m
+[31m[-            symbs = ['' for ji in freez] # `freez` includes M/L-][m
+[31m[-            symbs[-2] = '+'-][m
+[31m[-            outC = ''-][m
+[31m[-            outD = ''-][m
+[31m[-            for fi in range(nFiles):-][m
+[31m[-                outC += f"{params[fi, 0]: <.5f},{chiR[fi]: <.9f},"+\-][m
+[31m[-                    ','.join([f"{ppi: <{symbs[si]}.7f}"-][m
+[31m[-                    for si, ppi in enumerate(params[fi, 1:])])+'\n'-][m
+[31m[-                outD += f"{params[fi, 0]: <15.5f} {chiR[fi]: <19.9f} "+\-][m
+[31m[-                    ''.join([f"{ppi: <{symbs[si]}12.7f}"-][m
+[31m[-                    for si, ppi in enumerate(params[fi, 1:])])+'\n'-][m
+[31m[-            oup = open(Cfn, 'w+')-][m
+[31m[-            oup.write(f"{nFiles:05d}\n")-][m
+[31m[-            oup.write(outC)-][m
+[31m[-            oup.close()-][m
+[31m[-            oup = open(Dfn, 'w+')-][m
+[31m[-            oup.write(f"{nFiles:05d}\n")-][m
+[31m[-            oup.write(outD)-][m
+[31m[-            oup.close()-][m
+[31m[--][m
+[31m[-        # Corner data-][m
+[31m[-        cData = np.array(params[:, 1:]).T-][m
+[31m[-        bMC = mDirs[0]-][m
+[31m[-        bChi = KINCHI[0]-][m
+[31m[-        bChiR = chiR[0]-][m
+[31m[-        chiR = KINCHI*nKin/np.nanmin(KINCHI)-][m
+[31m[-        plotChi = (chiR - np.nanmin(chiR)) / np.sqrt(2.*nKin)-][m
+[31m[-        bBH, bQ, bP, bU, bDM, bDF, bML = bMC-][m
+[31m[-        bMKey = _gridKey(bBH, bQ, bP, bU, bDM, bDF)-][m
+[31m[-        bLKey = rReplace(_gridKey(bBH, bQ, bP, bU, bDM, bDF, bML),-][m
+[31m[-            keySep, plp.os.sep, 1)-][m
+[31m[-        oneSig = plotChi <= 1.-][m
+[31m[-        stderr = np.nanstd(params[oneSig, 1:], axis=0)-][m
+[31m[-        lls = dict(bh=dict(value=bBH, label=r'$\log_{10}(M_\bullet)$',-][m
+[31m[-                str='m_BH', ster=stderr[0]),-][m
+[31m[-            q=dict(value=bQ, label=r'$q$', str='Q', ster=stderr[1]),-][m
+[31m[-            p=dict(value=bP, label=r'$p$', str='P', ster=stderr[2]),-][m
+[31m[-            u=dict(value=bU, label=r'$u$', str='U', ster=stderr[3]),-][m
+[31m[-            dm=dict(value=bDM, label=r'$C_{\rm DM}$', str='C_DM',-][m
+[31m[-                ster=stderr[4]),-][m
+[31m[-            df=dict(value=bDF, str='f_DM', label=\-][m
+[31m[-                r'$\log_{10}\left[f_{\rm DM}\left(r_{200}\right)\right]$',-][m
+[31m[-                ster=stderr[5]),-][m
+[31m[-            ml=dict(value=bML, label=r'$\Upsilon$', str='M/L', ster=stderr[6]))-][m
+[31m[--][m
+[31m[-        bStr = ''.join([-][m
+[31m[-            f"{'Best': <5s}{lls[fs]['str']: <25s}{lls[fs]['value']: <15.7} "\-][m
+[31m[-            f"+/- {lls[fs]['ster']: <5.4}\n" for fs in freez])-][m
+[31m[-        bst = [float(f'{x1: 3.7f}') for x1 in Cu.oneQPUtoTPP(bQ, bP, bU, qMin)]-][m
+[31m[-        bStr += f"{'(theta, phi, psi):': <30s}{bst}\n"-][m
+[31m[-        bStr += f"{'TotalNKin(=chi2_r)': <30s}{nKin: <15d}\n"-][m
+[31m[-        bStr += f"{'kin chi2': <30s}{bChi: <15.7f}\n"-][m
+[31m[-        bStr += f"{'kin chi2 / DOF': <30s}{bChi/nKin: <15.7f}\n"-][m
+[31m[-        # bStr += "{: <20s}{: <15.2f}\n".format('kin chi2_r', bChiR)-][m
+[31m[-        bStr += f"{'Key': <10s}\n{'': <4s}{bMKey: <75s}"-][m
+[31m[-    except:-][m
+[31m[-        exc_type, exc_value, exc_traceback = sys.exc_info()-][m
+[31m[-        traceback.print_exc()-][m
+[31m[-        print(f"LINE {exc_traceback.tb_lineno}\n{'': <4s}{exc_type}\n"\-][m
+[31m[-              f"{'': <4s}{exc_value}")-][m
+[31m[-        pdb.set_trace()-][m
+[31m[--][m
+[31m[-    print(bStr)-][m
+[31m[--][m
+[31m[-    return bChiR, bBH, bQ, bP, bU, bDM, bDF, bML, params-][m
+[31m[--][m
+[31m[-# -------------------------------------------------------------------------------][m
+[31m[--][m
+def reverseGenINF(galaxy, mPath):[m
+    bDir = curdir/'tri_models'/mPath[m
+    iDir = bDir/'infil'[m
+[36m@@ -2142,3 +1913,104 @@[m [mdef reverseGenINF(galaxy, mPath):[m
+        ))[m
+
+# ------------------------------------------------------------------------------[m
+
+[32m{+def oneSpec(spectrum, labels=['velz', 'sigma', 'h3', 'h4', 'logage', 'zH',+}[m
+[32m{+        'FeH', 'Na', 'IMF1', 'IMF2',], pplots=['input', 'fit', 'corn']):+}[m
+[32m{+    """+}[m
+[32m{+    Plot results for a single isolated run of alf+}[m
+[32m{++}[m
+[32m{+    Parameters+}[m
+[32m{+    ----------+}[m
+[32m{+    spectrum : str+}[m
+[32m{+        _description_+}[m
+[32m{+    labels : list, optional+}[m
+[32m{+        _description_, by default ['velz', 'sigma', 'h3', 'h4', 'logage', 'zH', 'FeH', 'Na', 'IMF1', 'IMF2',]+}[m
+[32m{+    pplots : list, optional+}[m
+[32m{+        _description_, by default ['input', 'fit', 'corn']+}[m
+[32m{++}[m
+[32m{+    Returns+}[m
+[32m{+    -------+}[m
+[32m{+    _type_+}[m
+[32m{+        _description_+}[m
+[32m{+    +}[m
+[32m{+    Examples+}[m
+[32m{+    --------+}[m
+[32m{+    au.oneSpec('SNL1_NFMESOouterError_1arcs_dust', labels=['velz', 'sigma', 'h3', 'h4', 'logage', 'zH', 'FeH', 'Na', 'Ti', 'IMF1', 'C', 'N', 'Si', 'K', 'V', 'Cr', 'Mn', 'Co', 'Ni', 'Cu', 'Sr', 'Ba', 'Eu'])+}[m
+[32m{+    """    +}[m
+[32m{+    import matplotlib.pyplot as plt+}[m
+[32m{++}[m
+[32m{+    alf = Alf(curdir/'results'/spectrum, mPath=curdir)+}[m
+[32m{+    alf.get_total_met()+}[m
+[32m{+    alf.normalize_spectra()+}[m
+[32m{+    alf.abundance_correct()+}[m
+[32m{++}[m
+[32m{+    ifn = curdir/'indata'/f"{spectrum}.dat"+}[m
+[32m{+    waves, tPix, spec, err, weights, vel = readSpec(ifn)+}[m
+[32m{++}[m
+[32m{+    if 'input' in pplots:+}[m
+[32m{+        fig = plt.figure(figsize=plt.figaspect(1./10.))+}[m
+[32m{+        ax = fig.gca()+}[m
+[32m{+        for wpair in waves:+}[m
+[32m{+            ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4))[0]+}[m
+[32m{+            ax.plot(tPix[ww], spec[ww], lw=0.4, c='r')+}[m
+[32m{+        ax.fill_between(tPix, weights*spec.max(), alpha=0.2, facecolor='k',+}[m
+[32m{+            zorder=0)+}[m
+[32m{+        ax.set_ylim(top=(spec*weights).max()*1.1)+}[m
+[32m{+        fig.savefig(f"{spectrum}_input.pdf", format='pdf')+}[m
+[32m{++}[m
+[32m{+    if 'fit' in pplots:+}[m
+[32m{+        alf.plot_model(f"{spectrum}_fit.pdf")+}[m
+[32m{+        mwave, model, sinp, merr, _, mres = np.loadtxt(curdir/'results'/\+}[m
+[32m{+            f"{spectrum}.bestspec", unpack=True)+}[m
+[32m{+        fig = plt.figure(figsize=plt.figaspect(2.5/10.)*0.7)+}[m
+[32m{+        gs = gridspec.GridSpec(2, 1, hspace=0, wspace=0)+}[m
+[32m{+        ax = fig.add_subplot(gs[0, 0])+}[m
+[32m{+        for wpair in waves:+}[m
+[32m{+            ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4))[0]+}[m
+[32m{+            ax.plot(tPix[ww], spec[ww], lw=0.5, c='k')+}[m
+[32m{+        ax.plot(mwave, model, lw=0.5, c='r')+}[m
+[32m{+        ax.fill_between(tPix, (1.0-weights)*spec.max(), alpha=0.2,+}[m
+[32m{+            facecolor='k', zorder=0)+}[m
+[32m{+        ax.set_ylim(bottom=spec[weights>0][:-2].min()*0.7,+}[m
+[32m{+            top=spec[weights>0].max()*1.05)+}[m
+[32m{+        ax.set_xlim(min(mwave.min(), tPix.min())-20.,+}[m
+[32m{+            max(mwave.max(), tPix.max())+20.)+}[m
+[32m{+        ax.set_xticklabels([])+}[m
+[32m{+        ax.set_ylabel('Flux')+}[m
+[32m{++}[m
+[32m{+        ax = fig.add_subplot(gs[1, 0])+}[m
+[32m{+        mask = (tPix >= (mwave.min()-1.)) & (tPix <= (mwave.max()+1.))+}[m
+[32m{+        temp = tPix[mask][np.ma.getmaskarray(np.ma.masked_less(weights[mask], 0.5))]+}[m
+[32m{+        mwm = np.array([np.argmin(np.abs(tempi-mwave)) for tempi in temp])+}[m
+[32m{+        newm = np.zeros_like(mwave)+}[m
+[32m{+        newm[mwm] = 1+}[m
+[32m{+        residual = np.ma.masked_array((sinp-model)/sinp*100., mask=newm)+}[m
+[32m{+        ax.scatter(mwave, residual, marker='^', c='g', s=2)+}[m
+[32m{+        ax.axhline(0.0, lw=0.5, ls='--', c='grey')+}[m
+[32m{+        ax.fill_between(tPix, y1=-0.05*(1-weights), y2=0.05*(1-weights),+}[m
+[32m{+            alpha=0.2, facecolor='k', zorder=0)+}[m
+[32m{+        ax.set_xlabel(rf"Wavelength $[{UTS.angst}]$")+}[m
+[32m{+        ax.set_ylabel(r'Residual $[\%]$')+}[m
+[32m{+        ax.set_xlim(min(mwave.min(), tPix.min())-20.,+}[m
+[32m{+            max(mwave.max(), tPix.max())+20.)+}[m
+[32m{+        ax.set_ylim((-5, 5))+}[m
+[32m{+        ax.yaxis.set_major_locator(ticker.MaxNLocator(3, integer=True))+}[m
+[32m{+        fig.savefig(f"{spectrum}_spec.pdf")+}[m
+[32m{+        fig.savefig(f"{spectrum}_spec.png")+}[m
+[32m{+    +}[m
+[32m{+    if 'corn' in pplots:+}[m
+[32m{+        alf.plot_corner(f"{spectrum}_corn", labels)+}[m
+[32m{+    plt.close('all')+}[m
+[32m{++}[m
+[32m{+    arm = alf.results+}[m
+[32m{+    types = arm['Type'].tolist()+}[m
+[32m{+    bidx = types.index('chi2')+}[m
+[32m{+    eidx = types.index('error')+}[m
+[32m{+    print(f"{'Param': >15s} | {'Value': >30s}")+}[m
+[32m{+    print('-'*48)+}[m
+[32m{+    for lab in labels:+}[m
+[32m{+        ers = f"{arm[lab][bidx]: .4f} +/- {arm[lab][eidx]: .4f}"+}[m
+[32m{+        print(f"{lab: >15s} | {ers: >30s}")+}[m
+[32m{+    return alf+}[m
+[32m{++}[m
+[32m{+# ------------------------------------------------------------------------------+}[m
+[1mdiff --git a/ashoot.py b/ashoot.py[m
+[1mindex 8a24096..86d55cc 100755[m
+[1m--- a/ashoot.py[m
+[1m+++ b/ashoot.py[m
+[36m@@ -40,12 +40,14 @@[m [mimport matplotlib.patheffects as PathEffects[m
+from matplotlib.colors import LogNorm[m
+from scipy import stats as scistat[m
+from scipy import interpolate as sint[m
+[32m{+from skimage import filters as skilters+}[m
+from tqdm import tqdm[m
+from functools import partial[m
+from astropy.io import fits as pf[m
+from astropy import units as uts[m
+from scipy.special import gammaln[m
+import itertools[m
+[32m{+from svo_filters import svo+}[m
+
+# Custom modules[m
+import alf.alf_MUSE as am[m
+[36m@@ -318,68 +320,202 @@[m [mdef specCal():[m
+    np.savetxt(curdir/'indata'/"SNL1_corr.dat", np.column_stack((nLamb[1:], uncont, uncont*0.03, weis, velRes)), fmt='%20.10f', header=f"{nLamb[1:][0]*1e-4:.5f} {nLamb[1:][-1]*1e-4:.5f}")[m
+    pdb.set_trace()[m
+
+def [31m[-aperSpec():-][m[32m{+aperSpec(smask=[], rmask=[], variance=True):+}[m
+[32m{+    gal = au.Load.lzma(curdir.parent/'muse'/'obsData'/'SNL1.xz')+}[m
+[32m{+    if 'z' in gal.keys():+}[m
+[32m{+        RZ = Redshift(redshift=gal['z'])+}[m
+[32m{+    elif 'distance' in gal.keys():+}[m
+[32m{+        RZ = Redshift(distance=gal['distance'])+}[m
+[32m{+    else:+}[m
+[32m{+        raise RuntimeError('No distance information.')+}[m
+[32m{+    print(RZ)+}[m
+
+[32m{+    #+}[m wfm = next((dDir/'MUSECubes').glob(f"*SNL1_WFM_DATACUBE*.fits"))
+    [32m{+#+}[m wdu = pf.open(wfm)
+    [32m{+#+}[m wdd = wdu[1].header
+    [32m{+#+}[m wnL, wnY, wnX = wdd['NAXIS3'], wdd['NAXIS2'], wdd['NAXIS1']
+    [32m{+#+}[m wxOrg, wyOrg = GEO.genPix(np.arange(wnX), np.arange(wnY))
+    [32m{+#+}[m wpixs = np.abs(wdd['CD1_1']) * 60. * 60.
+    [32m{+# lpixs = wdd['CD3_3']+}[m
+[32m{+    #+}[m wLamb = [31m[-wdd['CRVAL3']+np.arange(wnL)*wdd['CD3_3']-][m[32m{+wdd['CRVAL3']+np.arange(wnL)*lpixs+}[m
+[32m{+    # wweights = np.ones_like(wLamb)+}[m
+[32m{+    # for pair in smask:+}[m
+[32m{+    #     mask = (wLamb >= (pair[0]-lpixs)) & (wLamb <= (pair[1]+lpixs))+}[m
+[32m{+    #     wweights[mask] = 0.0+}[m
+[32m{+    # for pair in rmask:+}[m
+[32m{+    #     mask = (wLamb/(RZ.zShift+1) >= (pair[0]-lpixs)) &\+}[m
+[32m{+    #         (wLamb/(RZ.zShift+1) <= (pair[1]+lpixs))+}[m
+[32m{+    #     wweights[mask] = 0.0+}[m
+[32m{+    #+}[m wCube = np.ma.masked_invalid(wdu[1].data)
+    [32m{+#+}[m weCube = np.ma.masked_invalid(wdu[2].data)
+    [32m{+# if variance:+}[m
+[32m{+    #     weCube = np.ma.sqrt(weCube)+}[m
+[32m{+    #+}[m wFlux = np.ma.sum(wCube, axis=0)
+    [32m{+#+}[m wdu.close()
+    [32m{+#+}[m wxc, wyc, _, [32m{+_, _,+}[m _ = PHT.findCentre(wFlux, [31m[-'SNL1')-][m[32m{+'SNL1WFM')+}[m
+[32m{+    #+}[m wxp = (wxOrg-wxc)*wpixs
+    [32m{+#+}[m wyp = (wyOrg-wyc)*wpixs
+    [32m{+#+}[m wrp = np.sqrt(wxp**2 + wyp**2)
+    [m
+    nfm = [31m[-next((dDir/'MUSECubes').glob(f"*SNL1_NFM_DATACUBE*.fits"))-][m[32m{+next((dDir/'MUSECubes').glob(f"*SNL1_NFMESOouterError_DATACUBE*.fits"))+}[m
+    ndu = pf.open(nfm)[m
+    ndd = [31m[-ndu[0].header-][m[32m{+ndu[1].header+}[m
+    nnL, nnY, nnX = ndd['NAXIS3'], ndd['NAXIS2'], ndd['NAXIS1'][m
+    nxOrg, nyOrg = GEO.genPix(np.arange(nnX), np.arange(nnY))[m
+    npixs = np.abs(ndd['CD1_1']) * 60. * 60.[m
+    [32m{+lpixs = ndd['CD3_3']+}[m
+    nLamb = [31m[-ndd['CRVAL3']+np.arange(nnL)*ndd['CD3_3']-][m[32m{+ndd['CRVAL3']+np.arange(nnL)*lpixs+}[m
+[32m{+    nweights = np.ones_like(nLamb)+}[m
+[32m{+    for pair in smask:+}[m
+[32m{+        mask = (nLamb >= (pair[0]-lpixs)) & (nLamb <= (pair[1]+lpixs))+}[m
+[32m{+        nweights[mask] = 0.0+}[m
+[32m{+    for pair in rmask:+}[m
+[32m{+        mask = (nLamb/(RZ.zShift+1) >= (pair[0]-lpixs)) &\+}[m
+[32m{+            (nLamb/(RZ.zShift+1) <= (pair[1]+lpixs))+}[m
+[32m{+        nweights[mask] = 0.0+}[m
+    nCube = [31m[-np.ma.masked_invalid(ndu[0].data)-][m[32m{+np.ma.masked_invalid(ndu[1].data)+}[m
+    neCube = [31m[-np.ma.masked_invalid(ndu[1].data)-][m[32m{+np.ma.masked_invalid(ndu[2].data)+}[m
+[32m{+    # if variance:+}[m
+[32m{+        # neCube = np.ma.sqrt(neCube)+}[m
+    nFlux = np.ma.sum(nCube, axis=0)[m
+    ndu.close()[m
+    nxc, nyc, _, [32m{+_, _,+}[m _ = PHT.findCentre(nFlux, [31m[-'SNL1_NFM')-][m[32m{+'SNL1NFM')+}[m
+
+[32m{+    # make colour image+}[m
+[32m{+    bfil = svo.Filter('WFPC2.F439W')+}[m
+[32m{+    rfil = svo.Filter('WFPC2.F814W')+}[m
+[32m{+    bWave = bfil.wave.to('angstrom').value.flatten()+}[m
+[32m{+    bTrans = bfil.throughput.flatten()+}[m
+[32m{+    bUps = sint.interp1d(bWave, bTrans, fill_value='extrapolate')+}[m
+[32m{+    bFilt = bUps(nLamb).clip(0.0)+}[m
+[32m{+    rWave = rfil.wave.to('angstrom').value.flatten()+}[m
+[32m{+    rTrans = rfil.throughput.flatten()+}[m
+[32m{+    rUps = sint.interp1d(rWave, rTrans, fill_value='extrapolate')+}[m
+[32m{+    rFilt = rUps(nLamb).clip(0.0)+}[m
+[32m{+    # collapse data cube after applying filter+}[m
+[32m{+    bImg = np.sum(np.multiply(nCube, bFilt[:, np.newaxis, np.newaxis]),+}[m
+[32m{+        axis=0)+}[m
+[32m{+    rImg = np.sum(np.multiply(nCube, rFilt[:, np.newaxis, np.newaxis]),+}[m
+[32m{+        axis=0)+}[m
+[32m{+    dImg = bImg - rImg # colour image+}[m
+[32m{+    # unsharp mask the colour image+}[m
+[32m{+    smooth = skilters.gaussian(dImg, 1.5)+}[m
+[32m{+    uMask = dImg - smooth+}[m
+[32m{+    dust = np.ma.masked_less(uMask.ravel(), 290.)+}[m
+[32m{+    dMask = np.ma.getmaskarray(dust)+}[m
+[32m{+    dMask[(nxOrg-nxc)*npixs > 0.075] = True # mask the non-dust+}[m
+[32m{+    dMask[np.sqrt(((nxOrg-nxc)*npixs)**2 + ((nyOrg-nyc)*npixs)**2) > 1.5+}[m
+[32m{+        ] = True+}[m
+[32m{+    # plt.clf(); dpp((xOrgi-xc)*pixs, (yOrgi-yc)*pixs, sele & dMask, pixelsize=pixs); plt.savefig('mask'); plt.close('all')+}[m
+    nxp = [31m[-(nxOrg-nxc)*npixs-][m[32m{+(np.compress(dMask, nxOrg)-nxc)*npixs+}[m
+    nyp = [31m[-(nyOrg-nyc)*npixs-][m[32m{+(np.compress(dMask, nyOrg)-nyc)*npixs+}[m
+    nrp = np.sqrt(nxp**2 + nyp**2)[m
+
+
+    
+    [31m[-wrFlux = wFlux.ravel()-][m
+[31m[-    nrFlux = nFlux.ravel()-][m[32m{+pdb.set_trace()+}[m
+
+[32m{+    #+}[m fwCube = wCube.reshape(wnL, -1)
+    fnCube = nCube.reshape(nnL, -1)[m
+    [32m{+#+}[m fewCube = weCube.reshape(wnL, -1)
+    fenCube = neCube.reshape(nnL, -1)[m
+    [32m{+fnCube = np.compress(dMask, fnCube, axis=1)+}[m
+[32m{+    fenCube = np.compress(dMask, fenCube, axis=1)+}[m
+
+    [31m[-dWave, dLSF = np.loadtxt(dDir/'MUSE.lsf', unpack=True)-][m
+[31m[-    dLSFFunc = interp1d(dWave, dLSF, 'linear', fill_value='extrapolate')-][m[32m{+#+}[m r1 = np.where(wrp <= [31m[-1.)[0]-][m[32m{+2.)[0]+}[m
+    r2 = np.where(nrp <= [31m[-1.)[0]-][m[32m{+1.0)[0]+}[m
+[32m{+    #+}[m dwSpec = np.ma.sum(fwCube[:, r1], axis=1)
+    dnSpec = np.ma.sum(fnCube[:, r2], axis=1)[m
+    [32m{+#+}[m dewSpec = np.ma.squeeze(np.ma.sqrt(np.ma.sum(fewCube[:, r1]**2, axis=1)))
+    denSpec = np.ma.squeeze(np.ma.sqrt(np.ma.sum(fenCube[:, [31m[-r1]**2,-][m[32m{+r2]**2,+}[m axis=1)))
+    [32m{+#+}[m wRelErr = dewSpec / dwSpec
+    nRelErr = denSpec / dnSpec[m
+    [32m{+#+}[m dwSpec /= np.ma.median(dwSpec)
+    dnSpec /= np.ma.median(dnSpec)[m
+    [32m{+#+}[m dewSpec = np.abs(dwSpec)*wRelErr
+    denSpec = np.abs(dnSpec)*nRelErr[m
+
+    dWave, dLSF = np.loadtxt(dDir/'MUSE.lsf', unpack=True)[m
+    dLSFFunc = sint.interp1d(dWave, dLSF, 'linear', fill_value='extrapolate')[m
+    nMuseLSF = dLSFFunc(nLamb)[m
+    nVelRes = CTS.c/(nLamb/nMuseLSF)[m
+    [32m{+#+}[m wMuseLSF = dLSFFunc(wLamb)
+    [32m{+#+}[m wVelRes = CTS.c/(wLamb/wMuseLSF)
+
+    [32m{+# np.savetxt(curdir/'indata'/'SNL1_WFM_2arcs.dat', np.column_stack((wLamb, dwSpec, dewSpec, wweights, wVelRes)), fmt='%20.10f', header=f"{wLamb[0]*1e-4:.5f} {wLamb[-1]*1e-4:.5f}")+}[m
+[32m{+    np.savetxt(curdir/'indata'/'SNL1_NFMESOouterError_1arcs_dust.dat', np.column_stack((nLamb, dnSpec, denSpec, nweights, nVelRes)), fmt='%20.10f', header=f"{nLamb[0]*1e-4:.5f} {nLamb[-1]*1e-4:.5f}")+}[m
+
+[32m{+    # spectrum = 'SNL1_WFM_2arcs'+}[m
+[32m{+    # ifn = curdir/'indata'/f"{spectrum}.dat"+}[m
+[32m{+    # waves, tPix, spec, err, weights, vel = au.readSpec(ifn)+}[m
+[32m{+    # fig = plt.figure(figsize=plt.figaspect(1./10.))+}[m
+[32m{+    # ax = fig.gca()+}[m
+[32m{+    # for wpair in waves:+}[m
+[32m{+    #     ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4))[0]+}[m
+[32m{+    #     ax.plot(tPix[ww], spec[ww], lw=0.4, c='r')+}[m
+[32m{+    # ax.fill_between(tPix, weights*spec.max(), alpha=0.2, facecolor='k',+}[m
+[32m{+    #     zorder=0)+}[m
+[32m{+    # ax.set_ylim(top=(spec*weights).max()*1.1)+}[m
+[32m{+    # fig.savefig(f"{spectrum}_input.pdf", format='pdf')+}[m
+
+[32m{+    spectrum = 'SNL1_NFMESOouterError_1arcs_dust'+}[m
+[32m{+    ifn = curdir/'indata'/f"{spectrum}.dat"+}[m
+[32m{+    waves, tPix, spec, err, weights, vel = au.readSpec(ifn)+}[m
+[32m{+    fig = plt.figure(figsize=plt.figaspect(1./10.))+}[m
+[32m{+    ax = fig.gca()+}[m
+[32m{+    for wpair in waves:+}[m
+[32m{+        ww = np.where((tPix >= wpair[0]*1e4) & (tPix <= wpair[1]*1e4))[0]+}[m
+[32m{+        ax.plot(tPix[ww], spec[ww], lw=0.4, c='r')+}[m
+[32m{+    ax.fill_between(tPix, weights*spec.max(), alpha=0.2, facecolor='k',+}[m
+[32m{+        zorder=0)+}[m
+[32m{+    ax.set_ylim(top=(spec*weights).max()*1.1)+}[m
+[32m{+    fig.savefig(f"{spectrum}_input.pdf", format='pdf')+}[m
+
+[32m{+def inout():+}[m
+[32m{+    nalf = au.oneSpec('SNL1_NFMESOouter_05arcs')+}[m
+[32m{+    walf = au.oneSpec('SNL1_WFM_2arcs')+}[m
+[32m{+    midx = walf.results['Type'].tolist().index('cl50')+}[m
+
+[32m{+    nimf=pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.), slopes=(nalf.results['IMF1'][midx], nalf.results['IMF2'][midx], 2.3))+}[m
+[32m{+    wimf=pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.), slopes=(walf.results['IMF1'][midx], walf.results['IMF2'][midx], 2.3))+}[m
+
+[32m{+    nxi = nimf.integrate(mlow=0.2, mhigh=0.5)[0]/nimf.integrate(mlow=0.2, mhigh=1.0)[0]+}[m
+[32m{+    wxi = wimf.integrate(mlow=0.2, mhigh=0.5)[0]/wimf.integrate(mlow=0.2, mhigh=1.0)[0]+}[m
+
+[32m{+    labs = ['sigma', 'logage', 'zH', 'FeH', 'Mg', 'Na']+}[m
+[32m{+    print(f"{'Prop.': ^12s}| {'NFM': ^12s} | {'WFM': ^12s}")+}[m
+[32m{+    for lab in labs:+}[m
+[32m{+        print(f"{lab: ^12s}| {nalf.results[lab][midx]: <12.6f} | {walf.results[lab][midx]: <12.6f}")+}[m
+[32m{+    print(f"{'xi': ^12s}| {nxi: <12.6f} | {wxi: <12.6f}")+}[m
+
+[32m{+def NFMcube():+}[m
+[32m{+    nfm = next((dDir/'MUSECubes').glob(f"*SNL1_NFM_DATACUBE*.fits"))+}[m
+[32m{+    ndu = pf.open(nfm)+}[m
+[32m{+    ndd = ndu[1].header+}[m
+[32m{+    nnL, nnY, nnX = ndd['NAXIS3'], ndd['NAXIS2'], ndd['NAXIS1']+}[m
+[32m{+    nxOrg, nyOrg = GEO.genPix(np.arange(nnX), np.arange(nnY))+}[m
+[32m{+    npixs = np.abs(ndd['CD1_1']) * 60. * 60.+}[m
+[32m{+    lpixs = ndd['CD3_3']+}[m
+[32m{+    nLamb = ndd['CRVAL3']+np.arange(nnL)*lpixs+}[m
+[32m{+    nCube = np.ma.masked_invalid(ndu[1].data)+}[m
+[32m{+    nFlux = np.ma.sum(nCube, axis=0)+}[m
+[32m{+    # ndu.close()+}[m
+[32m{+    nxc, nyc, theta, _, _, _ = PHT.findCentre(nFlux, 'SNL1NFM', 99.)+}[m
+[32m{+    nxp = (nxOrg-nxc)*npixs+}[m
+[32m{+    nyp = (nyOrg-nyc)*npixs+}[m
+[32m{+    theta += 90.+}[m
+
+[32m{+    sMGE = au.Load.mge('SNL1', 'F814W')+}[m
+[32m{+    nrp = np.sqrt(nxp**2 + (nyp/(1.-sMGE.epsE))**2)+}[m
+[32m{+    rxp, ryp = GEO.rotate2D(nxp, nyp, theta)+}[m
+[32m{+    rrp = np.sqrt(rxp**2 + (ryp/(1.-sMGE.epsE))**2)+}[m
+
+[32m{+    plt.clf(); dispp(nxp[rrp>5], nyp[rrp>5], nFlux.ravel()[rrp>5], pixelsize=npixs, angle=theta); plt.savefig('u')+}[m
+
+[32m{+    background = np.median(nCube.reshape(nnL, -1)[:, rrp>5], axis=1)+}[m
+[32m{+    bCube = nCube - background[:, np.newaxis, np.newaxis]+}[m
+
+[32m{+    ndu[1].data = bCube.data+}[m
+[32m{+    ndu.writeto(dDir/'MUSECubes'/'SNL1_NFMESOouter_DATACUBE.fits', overwrite=True)+}[m
+
+    [31m[-np.savetxt(curdir/'indata'/"SNL1_WFM_1arcs.dat", np.column_stack((wLamb, dwSpec, dewSpec, np.ones_like(wLamb), wVelRes)), fmt='%20.10f', header=f"{wLamb[0]*1e-4:.5f} {wLamb[-1]*1e-4:.5f}")-][m
+[31m[-    np.savetxt(curdir/'indata'/"SNL1_NFM_1arcs.dat", np.column_stack((nLamb, dnSpec, denSpec, np.ones_like(nLamb), nVelRes)), fmt='%20.10f', header=f"{nLamb[0]*1e-4:.5f} {nLamb[-1]*1e-4:.5f}")-][m[32m{+pdb.set_trace()+}[m
+[1mdiff --git a/salp_model_spectrum.txt b/salp_model_spectrum.txt[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/scripts/__init__.py b/scripts/__init__.py[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/scripts/read_alf.pro b/scripts/read_alf.pro[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/scripts/read_alf.py b/scripts/read_alf.py[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/scripts/read_specbin.pro b/scripts/read_specbin.pro[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/slurm_spec2.py b/slurm_spec2.py[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/spec2.qsys b/spec2.qsys[m
+[1mindex 3567a04..15d1cc9 100755[m
+[1m--- a/spec2.qsys[m
+[1m+++ b/spec2.qsys[m
+[36m@@ -12,9 +12,9 @@[m
+#SBATCH --mail-type=ALL[m
+#SBATCH --mail-user=adriano.poci@durham.ac.uk[m
+
+module load [31m[-gnu_comp-][m[32m{+gnu_comp/9.3.0+}[m
+module load [31m[-python/3.10.1-][m[32m{+openmpi/4.1.4+}[m
+module load [31m[-openmpi/20190429-][m[32m{+python/3.10.7+}[m
+module load cmake/3.18.1[m
+
+ipython slurm_alfSpec.py[m
+[1mdiff --git a/src/Makefile b/src/Makefile[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex b11cdec..2ebcc18[m
+[1m--- a/src/Makefile[m
+[1m+++ b/src/Makefile[m
+[36m@@ -16,7 +16,7 @@[m [mF90 = mpifort[m
+#  (Uncomment only one)[m
+#========================[m
+# GNU[m
+F90FLAGS = -O3 -fno-strict-overflow -cpp [31m[--mcmodel=medium-][m[32m{+#-mcmodel=large+}[m
+#F90FLAGS = -O3 -fno-strict-overflow  #for odyssey[m
+#---------------------[m
+# Intel [m
+[1mdiff --git a/src/add_response.f90 b/src/add_response.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/alf.f90 b/src/alf.f90[m
+[1mindex e1fe8fb..7de88ce 100755[m
+[1m--- a/src/alf.f90[m
+[1m+++ b/src/alf.f90[m
+[36m@@ -4,19 +4,19 @@[m [mPROGRAM ALF[m
+  !  of a quiescent (>1 Gyr) stellar population[m
+
+  ! Some important points to keep in mind:[m
+  ! 1. The prior bounds on the parameters are specified in set_pinit_priors. 
+  !    Always make sure that the output parameters are not hitting a prior.[m
+  ! 2. Make sure that the chain is converged in all relevant parameters[m
+  !    by plotting the chain trace (parameter vs. chain step).[m
+  ! 3. Do not use this code blindly.  Fitting spectra is a 
+  !    subtle art and the code can easily fool you if you don't know[m
+  !    what you're doing.  Make sure you understand *why* the code is 
+  !    settling on a particular parameter value.  
+  ! 4. Wavelength-dependent instrumental broadening can be included but[m
+  !    will not be accurate in the limit of modest-large redshift b/c[m
+  !    this is implemented in the model restframe at code setup time[m
+  ! 5. The code can fit for the atmospheric transmission function but[m
+  !    this will only work if the input data are in the original 
+  !    observed frame; i.e., not de-redshifted.[m
+  ! 6. I've found that Nwalkers=1024 and Nburn=~10,000 seems to[m
+  !    generically yield well-converged solutions, but you should test[m
+[36m@@ -25,7 +25,7 @@[m [mPROGRAM ALF[m
+  ! To Do:[m
+  ! 1. Let the Fe-peak elements track Fe in simple mode[m
+  ! 2. Force both young and old components to have the same abundance pattern[m
+  
+  !---------------------------------------------------------------------![m
+  !---------------------------------------------------------------------![m
+
+[36m@@ -36,20 +36,20 @@[m [mPROGRAM ALF[m
+  IMPLICIT NONE[m
+
+  !number of chain steps to print to file[m
+  INTEGER, PARAMETER :: [31m[-nmcmc=500-][m[32m{+nmcmc=1000+}[m
+  !inverse sampling of the walkers for printing[m
+  !NB: setting this to >1 currently results in errors in the *sum outputs[m
+  INTEGER, PARAMETER :: nsample=1[m
+  !length of chain burn-in[m
+  INTEGER, PARAMETER :: [31m[-nburn=2000-][m[32m{+nburn=10000+}[m
+  !number of walkers[m
+  INTEGER, PARAMETER :: [31m[-nwalkers=256 !512-][m[32m{+nwalkers=512+}[m 
+  !save the chain outputs to file and the model spectra[m
+  INTEGER, PARAMETER :: print_mcmc=1, print_mcmc_spec=0[m
+  !option to re-initialize the parameters around the best-fit[m
+  !solution and execute another round of burn-in[m
+  INTEGER, PARAMETER :: moreburn=1[m
+  
+  !start w/ powell minimization?[m
+  INTEGER, PARAMETER  :: dopowell=0[m
+  !Powell iteration tolerance[m
+[36m@@ -91,7 +91,7 @@[m [mPROGRAM ALF[m
+  INTEGER :: KILL=99,BEGIN=0[m
+  LOGICAL :: wait=.TRUE.[m
+  INTEGER, PARAMETER :: parentid=0[m
+ 
+  !---------------------------------------------------------------![m
+  !---------------------------Setup-------------------------------![m
+  !---------------------------------------------------------------![m
+[36m@@ -100,15 +100,15 @@[m [mPROGRAM ALF[m
+  fit_indices = 0[m
+
+  !flag determining the level of complexity[m
+  !0=full, 1=simple, [31m[-2=super-simple.  See sfvars for details-][m[32m{+2=super-simple; 3=semi-simple.+}[m
+  fit_type = 0[m
+
+  !fit h3 and h4 parameters[m
+  fit_hermite = 1[m
+  
+  !type of IMF to fit[m
+  !0=1PL, 1=2PL, 2=1PL+cutoff, 3=2PL+cutoff, 4=non-parametric IMF[m
+  imf_type = [31m[-0-][m[32m{+1+}[m
+
+  !are the data in the original observed frame?[m
+  observed_frame = 1[m
+[36m@@ -125,14 +125,15 @@[m [mPROGRAM ALF[m
+
+  !turn on/off the use of an external tabulated M/L prior[m
+  extmlpr = 0[m
+  
+  !change the prior limits to kill off these parameters[m
+  prhi%logm7g = -5.0[m
+  prhi%teff   =  2.0[m
+  prlo%teff   = -2.0[m
+  [32m{+prhi%loghot = -4.0+}[m
+[32m{+  prlo%loghot = -6.0+}[m
+  
+  
+  !mass of the young component should always be sub-dominant[m
+  prhi%logfy = -0.5[m
+
+[36m@@ -149,7 +150,7 @@[m [mPROGRAM ALF[m
+  IF (observed_frame.EQ.0.OR.fit_indices.EQ.1) THEN[m
+     fit_trans     =  0[m
+     prhi%logtrans = -5.0[m
+     prhi%logsky   = -5.0 
+  ELSE[m
+     fit_trans = 1[m
+     !extra smoothing to the transmission spectrum.[m
+[36m@@ -157,7 +158,7 @@[m [mPROGRAM ALF[m
+     !in velocity space, set the parameter below to that extra smoothing[m
+     smooth_trans = 0.0[m
+  ENDIF[m
+ 
+  IF (ssp_type.EQ.'cvd') THEN[m
+     !always limit the [Z/H] range for CvD since[m
+     !these models are actually only at Zsol[m
+[36m@@ -169,7 +170,7 @@[m [mPROGRAM ALF[m
+     ENDIF[m
+  ENDIF[m
+
+  IF [31m[-(fit_type.EQ.1.OR.fit_type.EQ.2)-][m[32m{+(fit_type.NE.0)+}[m mwimf=1
+
+  !---------------------------------------------------------------![m
+
+[36m@@ -198,14 +199,14 @@[m [mPROGRAM ALF[m
+
+  IF (taskid.EQ.parentid) THEN[m
+     !write some important variables to screen[m
+     WRITE(*,*) 
+     WRITE(*,'(" ************************************")') 
+     IF (fit_indices.EQ.1) THEN[m
+        WRITE(*,'(" ***********Index Fitter*************")')[m
+     ELSE[m
+        WRITE(*,'(" **********Spectral Fitter***********")')[m
+     ENDIF[m
+     WRITE(*,'(" ************************************")') 
+     WRITE(*,'("   ssp_type  =",A4)') ssp_type[m
+     WRITE(*,'("   fit_type  =",I2)') fit_type[m
+     WRITE(*,'("   imf_type  =",I2)') imf_type[m
+[36m@@ -213,7 +214,7 @@[m [mPROGRAM ALF[m
+     WRITE(*,'("fit_two_ages =",I2)') fit_two_ages[m
+     IF (imf_type.EQ.4) &[m
+          WRITE(*,'("   nonpimf   =",I2)') nonpimf_alpha[m
+     WRITE(*,'("  obs_frame  =",I2)') observed_frame 
+     WRITE(*,'("      mwimf  =",I2)') mwimf[m
+     WRITE(*,'("  age-dep Rf =",I2)') use_age_dep_resp_fcns[m
+     WRITE(*,'("    Z-dep Rf =",I2)') use_z_dep_resp_fcns[m
+[36m@@ -222,18 +223,18 @@[m [mPROGRAM ALF[m
+     WRITE(*,'("  Nchain     = ",I6)') nmcmc[m
+     WRITE(*,'("  Ncores     = ",I6)') ntasks[m
+     WRITE(*,'("  filename   = ",A)') TRIM(file)//TRIM(tag)[m
+     WRITE(*,'(" ************************************")') 
+     CALL DATE_AND_TIME(TIME=time)[m
+     CALL DTIME(dumt,time2)[m
+     WRITE(*,*) 
+     WRITE(*,*) 'Start Time '//time(1:2)//':'//time(3:4)[m
+     
+  ENDIF[m
+
+  !read in the data and wavelength boundaries[m
+  CALL READ_DATA(file,sigma_indx,velz_indx)[m
+
+  
+  IF (fit_indices.EQ.1) THEN[m
+
+     !fold in the approx data sigma into the "instrumental"[m
+[36m@@ -253,7 +254,7 @@[m [mPROGRAM ALF[m
+     prhi%logm7g         = -5.0[m
+     prhi%teff           =  2.0[m
+     prlo%teff           = -2.0[m
+     !we dont use velocities or dispersions here, so this 
+     !should be unnecessary, but haven't tested turning them off yet.[m
+     prlo%velz           = -10.[m
+     prhi%velz           =  10.[m
+[36m@@ -324,11 +325,11 @@[m [mPROGRAM ALF[m
+  CALL STR2ARR(1,prlo,prloarr)   !str->arr[m
+  CALL STR2ARR(1,prhi,prhiarr)   !str->arr[m
+
+  
+  ! The worker's only job is to calculate the value of a function[m
+  ! after receiving a parameter vector.[m
+  IF (taskid.NE.parentid) THEN[m
+     
+     ! Start event loop[m
+     DO WHILE (wait)[m
+
+[36m@@ -343,7 +344,7 @@[m [mPROGRAM ALF[m
+        IF ((received_tag.EQ.KILL).OR.(npos.EQ.0)) EXIT[m
+        CALL MPI_RECV(mpiposarr(1,1), npos*npar, MPI_DOUBLE_PRECISION, &[m
+             parentid, MPI_ANY_TAG, MPI_COMM_WORLD, status, ierr)[m
+   
+        IF (taskid.EQ.1.AND.test_time.EQ.1) THEN[m
+           CALL DATE_AND_TIME(TIME=time)[m
+           WRITE(*,*) '1 Time '//time(1:2)//':'//time(3:4)//':'&[m
+[36m@@ -360,7 +361,7 @@[m [mPROGRAM ALF[m
+           WRITE(*,*) '2 Time '//time(1:2)//':'//time(3:4)//':'&[m
+                //time(5:9),npos,taskid[m
+        ENDIF[m
+             
+        !Send it back to the parent[m
+        CALL MPI_SEND(lp_mpi(1), npos, MPI_DOUBLE_PRECISION, &[m
+             parentid, BEGIN, MPI_COMM_WORLD, ierr)[m
+[36m@@ -368,17 +369,17 @@[m [mPROGRAM ALF[m
+     ENDDO[m
+
+  ENDIF[m
+ 
+  !this is the parent process[m
+  IF (taskid.EQ.parentid) THEN[m
+ 
+     !for testing[m
+     IF (1.EQ.0) THEN[m
+        tpos%logage = 1.143[m
+        tpos%imf1   = 3.32[m
+        tpos%imf2   = 2.76[m
+        tpos%imf3   = 0.08[m
+        
+        CALL GETMODEL(tpos,mspecmw,mw=1)     !get spectrum for MW IMF[m
+        CALL GETM2L(lam,mspecmw,tpos,m2lmw,mw=1) !compute M/L_MW[m
+        write(*,'(A10,2F7.2)') 'M/L(MW)=', m2lmw(1:2)[m
+[36m@@ -402,10 +403,10 @@[m [mPROGRAM ALF[m
+        !make an initial estimate of the redshift[m
+        IF (file(1:4).EQ.'cdfs'.OR.file(1:5).EQ.'legac') THEN[m
+           WRITE(*,*) 'Setting initial cz to 0.0'[m
+           velz = 0.0 
+        ELSE IF (file(1:4).EQ.'df44') THEN[m
+           velz = 6280.00[m
+        ELSE 
+           WRITE(*,*) ' Fitting cz...'[m
+           velz = getvelz()[m
+           IF (velz.LT.prlo%velz.OR.velz.GT.prhi%velz) THEN[m
+[36m@@ -416,7 +417,7 @@[m [mPROGRAM ALF[m
+        opos%velz = velz[m
+        WRITE(*,'("    cz= ",F7.1," (z=",F6.3,")")') &[m
+             opos%velz, opos%velz/3E5[m
+        
+     ENDIF[m
+
+     CALL STR2ARR(1,opos,oposarr)   !str->arr[m
+[36m@@ -428,8 +429,8 @@[m [mPROGRAM ALF[m
+     !---------------------------------------------------------------![m
+     !---------------------Powell minimization-----------------------![m
+     !---------------------------------------------------------------![m
+     
+     IF (dopowell.EQ.1) THEN 
+
+        WRITE(*,*) ' Running Powell...'[m
+        powell_fitting = 1[m
+[36m@@ -451,19 +452,19 @@[m [mPROGRAM ALF[m
+           ENDIF[m
+        ENDDO[m
+        powell_fitting = 0[m
+        
+        !use the best-fit Powell position for the first MCMC position[m
+        CALL STR2ARR(2,opos,bposarr) !arr->str[m
+        
+        WRITE(*,'("    best velocity: ",F7.1)') opos%velz[m
+        WRITE(*,'("    best sigma:    ",F6.1)') opos%sigma[m
+        WRITE(*,'("    best age:      ",F6.1)') 10**opos%logage[m
+        WRITE(*,'("    best [Z/H]:    ",F6.1)') opos%zh[m
+        
+     ENDIF[m
+     
+     IF (maskem.EQ.1) THEN[m
+        !now that we have a good guess of the redshift and velocity dispersion, 
+        !mask out regions where emission line contamination may be a problem[m
+        !In full mode, the default is to actually *fit* for emissions lines.[m
+        CALL MASKEMLINES(opos%velz,opos%sigma)[m
+[36m@@ -475,10 +476,10 @@[m [mPROGRAM ALF[m
+
+     WRITE(*,*) ' Running emcee...'[m
+     CALL FLUSH()[m
+     
+     !initialize the walkers[m
+     DO j=1,nwalkers[m
+        
+        !random initialization of each walker[m
+        CALL SET_PINIT_PRIORS(opos,prlo,prhi,velz=velz)[m
+
+[36m@@ -503,7 +504,7 @@[m [mPROGRAM ALF[m
+
+        !Compute the initial log-probability for each walker[m
+        lp_emcee_in(j) = -0.5*func(pos_emcee_in(:, j))[m
+   
+        !check for initialization errors[m
+        IF (-2.*lp_emcee_in(j).GE.huge_number/2.) THEN[m
+           WRITE(*,*) 'ALF ERROR: initial lnp out of bounds!', j[m
+[36m@@ -544,10 +545,10 @@[m [mPROGRAM ALF[m
+
+
+     !burn-in V2[m
+     IF (moreburn.EQ.1) THEN 
+
+        ml    = MAXLOC(lp_emcee_in,1)    
+        bposarr  = pos_emcee_in(:,ml) 
+
+        DO j=1,nwalkers[m
+           DO i=1,npar[m
+[36m@@ -559,11 +560,11 @@[m [mPROGRAM ALF[m
+              IF (pos_emcee_in(i,j).GE.prhiarr(i)) &[m
+                   pos_emcee_in(i,j)=prhiarr(i)-wdth[m
+           ENDDO[m
+           
+           !Compute the initial log-probability for each walker[m
+           lp_emcee_in(j) = -0.5*func(pos_emcee_in(:, j))[m
+        ENDDO[m
+        
+
+        WRITE(*,*) '   burning in (V2)...'[m
+        WRITE(*,'(A)',advance='no') '      Progress:'[m
+[36m@@ -587,14 +588,14 @@[m [mPROGRAM ALF[m
+        ENDDO[m
+        WRITE (*,'(A)') '...100%'[m
+        CALL FLUSH()[m
+        
+     END IF[m
+
+
+     
+     !Run a production chain[m
+     WRITE(*,*) '   production run...'[m
+     
+     IF (print_mcmc.EQ.1) THEN[m
+        !open output file[m
+        OPEN(12,FILE=TRIM(ALF_HOME)//TRIM(OUTDIR)//&[m
+[36m@@ -602,17 +603,17 @@[m [mPROGRAM ALF[m
+     ENDIF[m
+
+     DO i=1,nmcmc[m
+ 
+        CALL EMCEE_ADVANCE_MPI(npar,nwalkers,2.d0,pos_emcee_in,&[m
+             lp_emcee_in,pos_emcee_out,lp_emcee_out,accept_emcee,ntasks-1)[m
+        pos_emcee_in = pos_emcee_out[m
+        lp_emcee_in  = lp_emcee_out[m
+        totacc       = totacc + SUM(accept_emcee)[m
+        
+        DO j=1,nwalkers,nsample[m
+           
+           CALL STR2ARR(2,opos,pos_emcee_in(:,j)) !arr->str[m
+           
+           !turn off various parameters for computing M/L[m
+           opos%logemline_h    = -8.0[m
+           opos%logemline_oii  = -8.0[m
+[36m@@ -633,7 +634,7 @@[m [mPROGRAM ALF[m
+              m2l   = m2lmw[m
+              mspec = mspecmw[m
+           ENDIF[m
+           
+           !save each model spectrum[m
+           !mspec_mcmc(1+j+(i-1)*nwalkers/nsample,:) = mspec[m
+
+[36m@@ -645,32 +646,34 @@[m [mPROGRAM ALF[m
+           IF (fit_type.EQ.1) THEN[m
+              pos_emcee_in(nparsimp+1:,j) = 0.0[m
+           ELSE IF (fit_type.EQ.2) THEN[m
+              pos_emcee_in(npowell+1:,j) = 0.0 
+           [32m{+ELSE IF (fit_type.EQ.3) THEN+}[m
+[32m{+              pos_emcee_in(nparsemisimp+1:,j) = 0.0+}[m
+           ENDIF[m
+           
+           IF (print_mcmc.EQ.1) THEN[m
+              !write the chain element to file[m
+              WRITE(12,'(ES12.5,1x,99(F11.4,1x))') &[m
+                   -2.0*lp_emcee_in(j),pos_emcee_in(:,j),m2l,m2lmw[m
+           ENDIF[m
+           
+           !keep the model with the lowest chi2[m
+           IF (-2.0*lp_emcee_in(j).LT.minchi2) THEN[m
+              bposarr = pos_emcee_in(:,j)[m
+              minchi2 = -2.0*lp_emcee_in(j)[m
+           ENDIF[m
+           
+           CALL UPDATE_RUNTOT(runtot,pos_emcee_in(:,j),m2l,m2lmw)[m
+           
+           !save each chain element[m
+           mcmcpar(1:npar,j+(i-1)*nwalkers/nsample) = pos_emcee_in(:,j)[m
+           mcmcpar(npar+1:npar+nfil,j+(i-1)*nwalkers/nsample)        = m2l[m
+           mcmcpar(npar+nfil+1:npar+2*nfil,j+(i-1)*nwalkers/nsample) = m2lmw[m
+
+        ENDDO[m
+        
+     ENDDO[m
+     
+     IF (print_mcmc.EQ.1) CLOSE(12)[m
+
+     !save the best position to the structure[m
+[36m@@ -687,19 +690,19 @@[m [mPROGRAM ALF[m
+        cl84(i)   = sortpos(INT(0.840*nwalkers*nmcmc/nsample))[m
+        cl97p5(i) = sortpos(INT(0.975*nwalkers*nmcmc/nsample))[m
+     ENDDO[m
+          
+     CALL DATE_AND_TIME(TIME=time)[m
+     CALL DTIME(dumt,time2)[m
+     WRITE(*,*) 'End Time   '//time(1:2)//':'//time(3:4)[m
+     WRITE(*,'(" Elapsed Time: ",F5.2," hr")') time2/3600.[m
+     WRITE(*,*) 
+     WRITE(*,'("  facc: ",F6.3)') REAL(totacc)/REAL(nmcmc*nwalkers)[m
+
+
+     !---------------------------------------------------------------![m
+     !--------------------Write results to file----------------------![m
+     !---------------------------------------------------------------![m
+     
+     !write a binary file of the production chain spectra[m
+     IF (print_mcmc_spec.EQ.1) THEN[m
+      !  mspec_mcmc(1,:) = lam[m
+[36m@@ -717,7 +720,7 @@[m [mPROGRAM ALF[m
+     !NB: the model written to file has the lowest chi^2[m
+     fret = func(bposarr,spec=mspec,funit=13)[m
+     CLOSE(13)[m
+ 
+     !write mean of the posterior distributions[m
+     OPEN(14,FILE=TRIM(ALF_HOME)//TRIM(OUTDIR)//&[m
+          TRIM(file)//TRIM(tag)//'.sum',STATUS='REPLACE')[m
+[36m@@ -728,7 +731,7 @@[m [mPROGRAM ALF[m
+     WRITE(14,'("#  fit_hermite =",I2)') fit_hermite[m
+     WRITE(14,'("# fit_two_ages =",I2)') fit_two_ages[m
+     WRITE(14,'("#     nonpimf  =",I2)') nonpimf_alpha[m
+     WRITE(14,'("#   obs_frame  =",I2)') observed_frame 
+     WRITE(14,'("#    fit_poly  =",I2)') fit_poly[m
+     WRITE(14,'("#       mwimf  =",I2)') mwimf[m
+     WRITE(14,'("#   age-dep Rf =",I2)') use_age_dep_resp_fcns[m
+[36m@@ -741,7 +744,7 @@[m [mPROGRAM ALF[m
+     WRITE(14,'("#   Ncores     = ",I6)') ntasks[m
+     WRITE(14,'("#   facc: ",F6.3)') REAL(totacc)/REAL(nmcmc*nwalkers)[m
+     WRITE(14,'("#   rows: mean posterior, pos(chi^2_min), 1 sigma errors, '//&[m
+          '2.5%, 16%, 50%, 84%, 97.5% CL, lower priors, upper priors ")') 
+
+     !write mean of posteriors[m
+     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') bpos%chi2,runtot(2,:)/runtot(1,:)[m
+[36m@@ -767,7 +770,7 @@[m [mPROGRAM ALF[m
+     CLOSE(14)[m
+
+     WRITE(*,*)[m
+     WRITE(*,'(" ************************************")') 
+
+     !break the workers out of their event loops so they can close[m
+     CALL FREE_WORKERS(ntasks-1)[m
+[36m@@ -775,6 +778,6 @@[m [mPROGRAM ALF[m
+  ENDIF[m
+
+  CALL MPI_FINALIZE(ierr)[m
+ 
+
+END PROGRAM ALF[m
+[1mdiff --git a/src/alf.f90.bak b/src/alf.f90.bak[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/alf.f90.perm b/src/alf.f90.perm[m
+[1mdeleted file mode 100755[m
+[1mindex ed321d1..0000000[m
+[1m--- a/src/alf.f90.perm[m
+[1m+++ /dev/null[m
+[36m@@ -1,782 +0,0 @@[m
+[31m[-PROGRAM ALF-][m
+
+[31m[-  !  Main program to fit the absorption line spectrum, or indices,-][m
+[31m[-  !  of a quiescent (>1 Gyr) stellar population-][m
+
+[31m[-  ! Some important points to keep in mind:-][m
+[31m[-  ! 1. The prior bounds on the parameters are specified in set_pinit_priors.-][m
+[31m[-  !    Always make sure that the output parameters are not hitting a prior.-][m
+[31m[-  ! 2. Make sure that the chain is converged in all relevant parameters-][m
+[31m[-  !    by plotting the chain trace (parameter vs. chain step).-][m
+[31m[-  ! 3. Do not use this code blindly.  Fitting spectra is a-][m
+[31m[-  !    subtle art and the code can easily fool you if you don't know-][m
+[31m[-  !    what you're doing.  Make sure you understand *why* the code is-][m
+[31m[-  !    settling on a particular parameter value.-][m
+[31m[-  ! 4. Wavelength-dependent instrumental broadening can be included but-][m
+[31m[-  !    will not be accurate in the limit of modest-large redshift b/c-][m
+[31m[-  !    this is implemented in the model restframe at code setup time-][m
+[31m[-  ! 5. The code can fit for the atmospheric transmission function but-][m
+[31m[-  !    this will only work if the input data are in the original-][m
+[31m[-  !    observed frame; i.e., not de-redshifted.-][m
+[31m[-  ! 6. I've found that Nwalkers=1024 and Nburn=~10,000 seems to-][m
+[31m[-  !    generically yield well-converged solutions, but you should test-][m
+[31m[-  !    this yourself by fitting mock data generated with write_a_model-][m
+
+[31m[-  ! To Do:-][m
+[31m[-  ! 1. Let the Fe-peak elements track Fe in simple mode-][m
+[31m[-  ! 2. Force both young and old components to have the same abundance pattern-][m
+
+[31m[-  !---------------------------------------------------------------------!-][m
+[31m[-  !---------------------------------------------------------------------!-][m
+
+[31m[-  USE alf_vars; USE alf_utils; USE mpi-][m
+[31m[-  USE nr, ONLY : locate,powell,sort,gasdev-][m
+[31m[-  USE ran_state, ONLY : ran_seed,ran_init-][m
+
+[31m[-  IMPLICIT NONE-][m
+
+[31m[-  !number of chain steps to print to file-][m
+[31m[-  INTEGER, PARAMETER :: nmcmc=500-][m
+[31m[-  !inverse sampling of the walkers for printing-][m
+[31m[-  !NB: setting this to >1 currently results in errors in the *sum outputs-][m
+[31m[-  INTEGER, PARAMETER :: nsample=1-][m
+[31m[-  !length of chain burn-in-][m
+[31m[-  INTEGER, PARAMETER :: nburn=2000-][m
+[31m[-  !number of walkers-][m
+[31m[-  INTEGER, PARAMETER :: nwalkers=256 !512-][m
+[31m[-  !save the chain outputs to file and the model spectra-][m
+[31m[-  INTEGER, PARAMETER :: print_mcmc=1, print_mcmc_spec=0-][m
+[31m[-  !option to re-initialize the parameters around the best-fit-][m
+[31m[-  !solution and execute another round of burn-in-][m
+[31m[-  INTEGER, PARAMETER :: moreburn=1-][m
+
+[31m[-  !start w/ powell minimization?-][m
+[31m[-  INTEGER, PARAMETER  :: dopowell=0-][m
+[31m[-  !Powell iteration tolerance-][m
+[31m[-  REAL(DP), PARAMETER :: ftol=0.1-][m
+[31m[-  !if set, will print to screen timing of likelihood calls-][m
+[31m[-  INTEGER, PARAMETER  :: test_time=0-][m
+[31m[-  !number of Monte Carlo realizations of the noise for index errors-][m
+[31m[-  INTEGER, PARAMETER  :: nmcindx=1000-][m
+
+[31m[-  INTEGER  :: i,j,k,totacc=0,iter=30,npos,ml-][m
+[31m[-  REAL(DP) :: velz,minchi2=huge_number,fret,wdth,bret=huge_number-][m
+[31m[-  REAL(DP), DIMENSION(nl)   :: mspec=0.0,mspecmw=0.0,lam=0.0-][m
+[31m[-  REAL(DP), DIMENSION(nfil) :: m2l=0.0,m2lmw=0.0-][m
+[31m[-  REAL(DP), DIMENSION(npar) :: oposarr=0.,bposarr=0.0-][m
+[31m[-  REAL(DP), DIMENSION(npar,nwalkers) :: mpiposarr=0.0-][m
+[31m[-  REAL(DP), DIMENSION(3,npar+2*nfil) :: runtot=0.0-][m
+[31m[-  REAL(DP), DIMENSION(npar+2*nfil)   :: cl2p5,cl16,cl50,cl84,cl97p5-][m
+[31m[-  REAL(DP), DIMENSION(npar,npar)     :: xi=0.0-][m
+[31m[-  REAL(DP), DIMENSION(npar+2*nfil,nwalkers*nmcmc/nsample) :: mcmcpar=0.0-][m
+
+[31m[-  REAL(DP), DIMENSION(nwalkers*nmcmc/nsample) :: sortpos-][m
+[31m[-  CHARACTER(10) :: time-][m
+[31m[-  REAL(SP)      :: time2-][m
+[31m[-  REAL(SP), DIMENSION(2) :: dumt-][m
+[31m[-  CHARACTER(50) :: file='',tag=''-][m
+[31m[-  TYPE(PARAMS)  :: opos,prlo,prhi,bpos,tpos-][m
+[31m[-  REAL(DP)      :: sigma_indx,velz_indx-][m
+[31m[-  REAL(DP), DIMENSION(ndat) :: gdev,tflx-][m
+[31m[-  REAL(DP), DIMENSION(nmcindx,nindx) :: tmpindx=0.-][m
+[31m[-  !REAL(SP), DIMENSION(nmcmc*nwalkers/nsample+1,nl) :: mspec_mcmc=0.0-][m
+
+[31m[-  !variables for emcee-][m
+[31m[-  REAL(DP), DIMENSION(npar,nwalkers) :: pos_emcee_in,pos_emcee_out-][m
+[31m[-  REAL(DP), DIMENSION(nwalkers)      :: lp_emcee_in,lp_emcee_out,lp_mpi-][m
+[31m[-  INTEGER,  DIMENSION(nwalkers)      :: accept_emcee-][m
+
+[31m[-  !variables for MPI-][m
+[31m[-  INTEGER :: ierr,taskid,ntasks,received_tag,status(MPI_STATUS_SIZE)-][m
+[31m[-  INTEGER :: KILL=99,BEGIN=0-][m
+[31m[-  LOGICAL :: wait=.TRUE.-][m
+[31m[-  INTEGER, PARAMETER :: parentid=0-][m
+
+[31m[-  !---------------------------------------------------------------!-][m
+[31m[-  !---------------------------Setup-------------------------------!-][m
+[31m[-  !---------------------------------------------------------------!-][m
+
+[31m[-  !flag specifying if fitting indices or spectra-][m
+[31m[-  fit_indices = 0-][m
+
+[31m[-  !flag determining the level of complexity-][m
+[31m[-  !0=full, 1=simple, 2=super-simple.  See sfvars for details-][m
+[31m[-  fit_type = 0-][m
+
+[31m[-  !fit h3 and h4 parameters-][m
+[31m[-  fit_hermite = 1-][m
+
+[31m[-  !type of IMF to fit-][m
+[31m[-  !0=1PL, 1=2PL, 2=1PL+cutoff, 3=2PL+cutoff, 4=non-parametric IMF-][m
+[31m[-  imf_type = 0-][m
+
+[31m[-  !are the data in the original observed frame?-][m
+[31m[-  observed_frame = 1-][m
+
+[31m[-  !force a MW (Kroupa) IMF-][m
+[31m[-  mwimf = 0-][m
+
+[31m[-  !fit two-age SFH or not?  (only considered if fit_type=0)-][m
+[31m[-  fit_two_ages = 0-][m
+
+[31m[-  !IMF slope within the non-parametric IMF bins-][m
+[31m[-  !0 = flat, 1 = Kroupa, 2 = Salpeter-][m
+[31m[-  nonpimf_alpha = 2-][m
+
+[31m[-  !turn on/off the use of an external tabulated M/L prior-][m
+[31m[-  extmlpr = 0-][m
+
+[31m[-  !change the prior limits to kill off these parameters-][m
+[31m[-  prhi%logm7g = -5.0-][m
+[31m[-  prhi%teff   =  2.0-][m
+[31m[-  prlo%teff   = -2.0-][m
+
+[31m[-  prlo%velz = -999.-][m
+[31m[-  prhi%velz = 999.-][m
+
+
+[31m[-  !mass of the young component should always be sub-dominant-][m
+[31m[-  prhi%logfy = -0.5-][m
+
+[31m[-  !---------------------------------------------------------------!-][m
+[31m[-  !--------------Do not change things below this line-------------!-][m
+[31m[-  !---------------unless you know what you are doing--------------!-][m
+[31m[-  !---------------------------------------------------------------!-][m
+
+[31m[-  !regularize non-parametric IMF (always do this)-][m
+[31m[-  nonpimf_regularize = 1-][m
+
+[31m[-  !dont fit transmission function in cases where the input-][m
+[31m[-  !spectrum has already been de-redshifted to ~0.0-][m
+[31m[-  IF (observed_frame.EQ.0.OR.fit_indices.EQ.1) THEN-][m
+[31m[-     fit_trans     =  0-][m
+[31m[-     prhi%logtrans = -5.0-][m
+[31m[-     prhi%logsky   = -5.0-][m
+[31m[-  ELSE-][m
+[31m[-     fit_trans = 1-][m
+[31m[-     !extra smoothing to the transmission spectrum.-][m
+[31m[-     !if the input data has been smoothed by a gaussian-][m
+[31m[-     !in velocity space, set the parameter below to that extra smoothing-][m
+[31m[-     smooth_trans = 0.0-][m
+[31m[-  ENDIF-][m
+
+[31m[-  IF (ssp_type.EQ.'cvd') THEN-][m
+[31m[-     !always limit the [Z/H] range for CvD since-][m
+[31m[-     !these models are actually only at Zsol-][m
+[31m[-     prhi%zh =  0.01-][m
+[31m[-     prlo%zh = -0.01-][m
+[31m[-     IF (imf_type.GT.1) THEN-][m
+[31m[-        WRITE(*,*) 'ALF ERROR, ssp_type=cvd but imf>1'-][m
+[31m[-        STOP-][m
+[31m[-     ENDIF-][m
+[31m[-  ENDIF-][m
+
+[31m[-  IF (fit_type.EQ.1.OR.fit_type.EQ.2) mwimf=1-][m
+
+[31m[-  !---------------------------------------------------------------!-][m
+
+[31m[-  ! Initialize MPI, and get the total number of processes and-][m
+[31m[-  ! your process number-][m
+[31m[-  CALL MPI_INIT( ierr )-][m
+[31m[-  CALL MPI_COMM_RANK( MPI_COMM_WORLD, taskid, ierr )-][m
+[31m[-  CALL MPI_COMM_SIZE( MPI_COMM_WORLD, ntasks, ierr )-][m
+
+[31m[-  !initialize the random number generator-][m
+[31m[-  !set each task to sleep for a different length of time-][m
+[31m[-  !so that each task has its own unique random number seed-][m
+[31m[-  CALL SLEEP(taskid)-][m
+[31m[-  CALL INIT_RANDOM_SEED()-][m
+
+[31m[-  IF (IARGC().LT.1) THEN-][m
+[31m[-     WRITE(*,*) 'ALF ERROR: You need to specify an input file'-][m
+[31m[-     STOP-][m
+[31m[-  ELSE-][m
+[31m[-     CALL GETARG(1,file)-][m
+[31m[-  ENDIF-][m
+[31m[-  IF (IARGC().GT.1) THEN-][m
+[31m[-     tag(1:1)='_'-][m
+[31m[-     CALL GETARG(2,tag(2:))-][m
+[31m[-  ENDIF-][m
+
+[31m[-  IF (taskid.EQ.parentid) THEN-][m
+[31m[-     !write some important variables to screen-][m
+[31m[-     WRITE(*,*)-][m
+[31m[-     WRITE(*,'(" ************************************")')-][m
+[31m[-     IF (fit_indices.EQ.1) THEN-][m
+[31m[-        WRITE(*,'(" ***********Index Fitter*************")')-][m
+[31m[-     ELSE-][m
+[31m[-        WRITE(*,'(" **********Spectral Fitter***********")')-][m
+[31m[-     ENDIF-][m
+[31m[-     WRITE(*,'(" ************************************")')-][m
+[31m[-     WRITE(*,'("   ssp_type  =",A4)') ssp_type-][m
+[31m[-     WRITE(*,'("   fit_type  =",I2)') fit_type-][m
+[31m[-     WRITE(*,'("   imf_type  =",I2)') imf_type-][m
+[31m[-     WRITE(*,'(" fit_hermite =",I2)') fit_hermite-][m
+[31m[-     WRITE(*,'("fit_two_ages =",I2)') fit_two_ages-][m
+[31m[-     IF (imf_type.EQ.4) &-][m
+[31m[-          WRITE(*,'("   nonpimf   =",I2)') nonpimf_alpha-][m
+[31m[-     WRITE(*,'("  obs_frame  =",I2)') observed_frame-][m
+[31m[-     WRITE(*,'("      mwimf  =",I2)') mwimf-][m
+[31m[-     WRITE(*,'("  age-dep Rf =",I2)') use_age_dep_resp_fcns-][m
+[31m[-     WRITE(*,'("    Z-dep Rf =",I2)') use_z_dep_resp_fcns-][m
+[31m[-     WRITE(*,'("  Nwalkers   = ",I6)') nwalkers-][m
+[31m[-     WRITE(*,'("  Nburn      = ",I6)') nburn-][m
+[31m[-     WRITE(*,'("  Nchain     = ",I6)') nmcmc-][m
+[31m[-     WRITE(*,'("  Ncores     = ",I6)') ntasks-][m
+[31m[-     WRITE(*,'("  filename   = ",A)') TRIM(file)//TRIM(tag)-][m
+[31m[-     WRITE(*,'(" ************************************")')-][m
+[31m[-     CALL DATE_AND_TIME(TIME=time)-][m
+[31m[-     CALL DTIME(dumt,time2)-][m
+[31m[-     WRITE(*,*)-][m
+[31m[-     WRITE(*,*) 'Start Time '//time(1:2)//':'//time(3:4)-][m
+
+[31m[-  ENDIF-][m
+
+[31m[-  !read in the data and wavelength boundaries-][m
+[31m[-  CALL READ_DATA(file,sigma_indx,velz_indx)-][m
+
+
+[31m[-  IF (fit_indices.EQ.1) THEN-][m
+
+[31m[-     !fold in the approx data sigma into the "instrumental"-][m
+[31m[-     data%ires = SQRT(data%ires**2+sigma_indx**2)-][m
+
+[31m[-     !read in the SSPs and bandpass filters-][m
+[31m[-     CALL SETUP()-][m
+[31m[-     lam = sspgrid%lam-][m
+
+[31m[-     prhi%logemline_h    = -5.0-][m
+[31m[-     prhi%logemline_oii  = -5.0-][m
+[31m[-     prhi%logemline_oiii = -5.0-][m
+[31m[-     prhi%logemline_nii  = -5.0-][m
+[31m[-     prhi%logemline_sii  = -5.0-][m
+[31m[-     prhi%logemline_ni   = -5.0-][m
+[31m[-     prhi%loghot         = -5.0-][m
+[31m[-     prhi%logm7g         = -5.0-][m
+[31m[-     prhi%teff           =  2.0-][m
+[31m[-     prlo%teff           = -2.0-][m
+[31m[-     !we dont use velocities or dispersions here, so this-][m
+[31m[-     !should be unnecessary, but haven't tested turning them off yet.-][m
+[31m[-     prlo%velz           = -10.-][m
+[31m[-     prhi%velz           =  10.-][m
+[31m[-     prlo%sigma          = sigma_indx-10.-][m
+[31m[-     prhi%sigma          = sigma_indx+10.-][m
+
+[31m[-     !de-redshift, monte carlo sample the noise, and compute indices-][m
+[31m[-     !NB: need to mask bad pixels!-][m
+[31m[-     DO j=1,nmcindx-][m
+[31m[-        CALL GASDEV(gdev(1:datmax))-][m
+[31m[-        tflx(1:datmax) = linterp(data(1:datmax)%lam/(1+velz_indx),&-][m
+[31m[-             data(1:datmax)%flx+gdev(1:datmax)*data(1:datmax)%err,&-][m
+[31m[-             data(1:datmax)%lam)-][m
+[31m[-        CALL GETINDX(data(1:datmax)%lam,tflx(1:datmax),tmpindx(j,:))-][m
+[31m[-     ENDDO-][m
+
+[31m[-     !compute mean indices and errors-][m
+[31m[-     DO j=1,nindx-][m
+[31m[-        IF (indx2fit(j).EQ.1) THEN-][m
+[31m[-           data_indx(j)%indx = SUM(tmpindx(:,j))/nmcindx-][m
+[31m[-           data_indx(j)%err  = SQRT( SUM(tmpindx(:,j)**2)/nmcindx - &-][m
+[31m[-                (SUM(tmpindx(:,j))/nmcindx)**2 )-][m
+[31m[-           !write(*,'(I2,2F6.2)') j,data_indx(j)%indx,data_indx(j)%err-][m
+[31m[-        ELSE-][m
+[31m[-           data_indx(j)%indx = 0.0-][m
+[31m[-           data_indx(j)%err  = 999.-][m
+[31m[-        ENDIF-][m
+[31m[-     ENDDO-][m
+
+[31m[-     nl_fit = nl-][m
+
+[31m[-  ENDIF-][m
+
+[31m[-  IF (fit_indices.EQ.0) THEN-][m
+
+[31m[-     !read in the SSPs and bandpass filters-][m
+[31m[-     CALL SETUP()-][m
+[31m[-     lam = sspgrid%lam-][m
+
+[31m[-     !interpolate the sky emission model onto the observed wavelength grid-][m
+[31m[-     IF (observed_frame.EQ.1) THEN-][m
+[31m[-        data(1:datmax)%sky = MAX(linterp(lsky,fsky,data(1:datmax)%lam),0.0)-][m
+[31m[-     ELSE-][m
+[31m[-        data%sky = tiny_number-][m
+[31m[-     ENDIF-][m
+[31m[-     data%sky = tiny_number-][m
+
+[31m[-     !we only compute things up to 500A beyond the input fit region-][m
+[31m[-     nl_fit = MIN(MAX(locate(lam,l2(nlint)+500.0),1),nl)-][m
+
+[31m[-     !define the log wavelength grid used in velbroad.f90-][m
+[31m[-     dlstep = (LOG(sspgrid%lam(nl_fit))-LOG(sspgrid%lam(1)))/nl_fit-][m
+[31m[-     DO i=1,nl_fit-][m
+[31m[-        lnlam(i) = i*dlstep+LOG(sspgrid%lam(1))-][m
+[31m[-     ENDDO-][m
+
+[31m[-     !masked regions have wgt=0.0.  We'll use wgt as a pseudo-error-][m
+[31m[-     !array in contnormspec, so turn these into large numbers-][m
+[31m[-     data%wgt = MIN(1/(data%wgt+tiny_number),huge_number)-][m
+[31m[-     !fold the masked regions into the errors-][m
+[31m[-     data%err = MIN(data%err*data%wgt, huge_number)-][m
+
+[31m[-  ENDIF-][m
+
+[31m[-  !set initial params, step sizes, and prior ranges-][m
+[31m[-  CALL SET_PINIT_PRIORS(opos,prlo,prhi)-][m
+[31m[-  !convert the structures into their equivalent arrays-][m
+[31m[-  CALL STR2ARR(1,prlo,prloarr)   !str->arr-][m
+[31m[-  CALL STR2ARR(1,prhi,prhiarr)   !str->arr-][m
+
+
+[31m[-  ! The worker's only job is to calculate the value of a function-][m
+[31m[-  ! after receiving a parameter vector.-][m
+[31m[-  IF (taskid.NE.parentid) THEN-][m
+
+[31m[-     ! Start event loop-][m
+[31m[-     DO WHILE (wait)-][m
+
+[31m[-        ! Look for data from the parent. This call can accept up-][m
+[31m[-        ! to ``nwalkers`` paramater positions, but it expects-][m
+[31m[-        ! that the actual number of positions is smaller and is-][m
+[31m[-        ! given by the MPI_TAG.  This call does not return until-][m
+[31m[-        ! a set of parameter vectors is received-][m
+[31m[-        CALL MPI_RECV(npos, 1, MPI_INTEGER, &-][m
+[31m[-             parentid, MPI_ANY_TAG, MPI_COMM_WORLD, status, ierr)-][m
+[31m[-        received_tag = status(MPI_TAG)-][m
+[31m[-        IF ((received_tag.EQ.KILL).OR.(npos.EQ.0)) EXIT-][m
+[31m[-        CALL MPI_RECV(mpiposarr(1,1), npos*npar, MPI_DOUBLE_PRECISION, &-][m
+[31m[-             parentid, MPI_ANY_TAG, MPI_COMM_WORLD, status, ierr)-][m
+
+[31m[-        IF (taskid.EQ.1.AND.test_time.EQ.1) THEN-][m
+[31m[-           CALL DATE_AND_TIME(TIME=time)-][m
+[31m[-           WRITE(*,*) '1 Time '//time(1:2)//':'//time(3:4)//':'&-][m
+[31m[-                //time(5:9),npos,taskid-][m
+[31m[-        ENDIF-][m
+
+[31m[-        !Calculate the probability for these parameter positions-][m
+[31m[-        DO k=1,npos-][m
+[31m[-           lp_mpi(k) = -0.5*func(mpiposarr(:,k))-][m
+[31m[-        ENDDO-][m
+
+[31m[-         IF (taskid.EQ.1.AND.test_time.EQ.1) THEN-][m
+[31m[-           CALL DATE_AND_TIME(TIME=time)-][m
+[31m[-           WRITE(*,*) '2 Time '//time(1:2)//':'//time(3:4)//':'&-][m
+[31m[-                //time(5:9),npos,taskid-][m
+[31m[-        ENDIF-][m
+
+[31m[-        !Send it back to the parent-][m
+[31m[-        CALL MPI_SEND(lp_mpi(1), npos, MPI_DOUBLE_PRECISION, &-][m
+[31m[-             parentid, BEGIN, MPI_COMM_WORLD, ierr)-][m
+
+[31m[-     ENDDO-][m
+
+[31m[-  ENDIF-][m
+
+[31m[-  !this is the parent process-][m
+[31m[-  IF (taskid.EQ.parentid) THEN-][m
+
+[31m[-     !for testing-][m
+[31m[-     IF (1.EQ.0) THEN-][m
+[31m[-        tpos%logage = 1.143-][m
+[31m[-        tpos%imf1   = 3.32-][m
+[31m[-        tpos%imf2   = 2.76-][m
+[31m[-        tpos%imf3   = 0.08-][m
+
+[31m[-        CALL GETMODEL(tpos,mspecmw,mw=1)     !get spectrum for MW IMF-][m
+[31m[-        CALL GETM2L(lam,mspecmw,tpos,m2lmw,mw=1) !compute M/L_MW-][m
+[31m[-        write(*,'(A10,2F7.2)') 'M/L(MW)=', m2lmw(1:2)-][m
+[31m[-        CALL GETMODEL(tpos,mspec)-][m
+[31m[-        CALL GETM2L(lam,mspec,tpos,m2l)-][m
+[31m[-        write(*,'(A10,2F7.2)') 'M/L=', m2l(1:2)-][m
+[31m[-        CALL FREE_WORKERS(ntasks-1)-][m
+[31m[-        CALL MPI_FINALIZE(ierr)-][m
+[31m[-        STOP-][m
+[31m[-     ENDIF-][m
+
+[31m[-     IF (fit_indices.EQ.0) THEN-][m
+
+[31m[-        WRITE(*,'("  Fitting ",I1," wavelength intervals")') nlint-][m
+[31m[-        IF (l2(nlint).GT.lam(nl).OR.l1(1).LT.lam(1)) THEN-][m
+[31m[-           WRITE(*,*) 'ERROR: wavelength boundaries exceed model wavelength grid'-][m
+[31m[-           WRITE(*,'(4F8.1)') l2(nlint),lam(nl),l1(1),lam(1)-][m
+[31m[-           STOP-][m
+[31m[-        ENDIF-][m
+
+[31m[-        !make an initial estimate of the redshift-][m
+[31m[-        IF (file(1:4).EQ.'cdfs'.OR.file(1:5).EQ.'legac') THEN-][m
+[31m[-           WRITE(*,*) 'Setting initial cz to 0.0'-][m
+[31m[-           velz = 0.0-][m
+[31m[-        ELSE IF (file(1:4).EQ.'df44') THEN-][m
+[31m[-           velz = 6280.00-][m
+[31m[-        ELSE-][m
+[31m[-           WRITE(*,*) ' Fitting cz...'-][m
+[31m[-           velz = getvelz()-][m
+[31m[-           IF (velz.LT.prlo%velz.OR.velz.GT.prhi%velz) THEN-][m
+[31m[-              WRITE(*,*) 'cz out of prior bounds, setting to 0.0'-][m
+[31m[-              velz = 0.0-][m
+[31m[-           ENDIF-][m
+[31m[-        ENDIF-][m
+[31m[-        opos%velz = velz-][m
+[31m[-        WRITE(*,'("    cz= ",F7.1," (z=",F6.3,")")') &-][m
+[31m[-             opos%velz, opos%velz/3E5-][m
+
+[31m[-     ENDIF-][m
+
+[31m[-     CALL STR2ARR(1,opos,oposarr)   !str->arr-][m
+
+[31m[-     !initialize the random number generator-][m
+[31m[-     !why is this being done here again?-][m
+[31m[-     CALL INIT_RANDOM_SEED()-][m
+
+[31m[-     !---------------------------------------------------------------!-][m
+[31m[-     !---------------------Powell minimization-----------------------!-][m
+[31m[-     !---------------------------------------------------------------!-][m
+
+[31m[-     IF (dopowell.EQ.1) THEN-][m
+
+[31m[-        WRITE(*,*) ' Running Powell...'-][m
+[31m[-        powell_fitting = 1-][m
+[31m[-        DO j=1,10-][m
+[31m[-           xi=0.0-][m
+[31m[-           DO i=1,npar-][m
+[31m[-              xi(i,i) = 1E-2-][m
+[31m[-           ENDDO-][m
+[31m[-           fret = huge_number-][m
+[31m[-           CALL SET_PINIT_PRIORS(opos,prlo,prhi,velz=velz)-][m
+[31m[-           CALL STR2ARR(1,opos,oposarr) !str->arr-][m
+[31m[-           CALL POWELL(oposarr(1:npowell),xi(1:npowell,1:npowell),&-][m
+[31m[-                ftol,iter,fret)-][m
+[31m[-           CALL STR2ARR(2,opos,oposarr) !arr->str-][m
+[31m[-           IF (fret.LT.bret) THEN-][m
+[31m[-              bposarr = oposarr-][m
+[31m[-              bpos    = opos-][m
+[31m[-              bret    = fret-][m
+[31m[-           ENDIF-][m
+[31m[-        ENDDO-][m
+[31m[-        powell_fitting = 0-][m
+
+[31m[-        !use the best-fit Powell position for the first MCMC position-][m
+[31m[-        CALL STR2ARR(2,opos,bposarr) !arr->str-][m
+
+[31m[-        WRITE(*,'("    best velocity: ",F7.1)') opos%velz-][m
+[31m[-        WRITE(*,'("    best sigma:    ",F6.1)') opos%sigma-][m
+[31m[-        WRITE(*,'("    best age:      ",F6.1)') 10**opos%logage-][m
+[31m[-        WRITE(*,'("    best [Z/H]:    ",F6.1)') opos%zh-][m
+
+[31m[-     ENDIF-][m
+
+[31m[-     IF (maskem.EQ.1) THEN-][m
+[31m[-        !now that we have a good guess of the redshift and velocity dispersion,-][m
+[31m[-        !mask out regions where emission line contamination may be a problem-][m
+[31m[-        !In full mode, the default is to actually *fit* for emissions lines.-][m
+[31m[-        CALL MASKEMLINES(opos%velz,opos%sigma)-][m
+[31m[-     ENDIF-][m
+
+[31m[-     !---------------------------------------------------------------!-][m
+[31m[-     !-----------------------------MCMC------------------------------!-][m
+[31m[-     !---------------------------------------------------------------!-][m
+
+[31m[-     WRITE(*,*) ' Running emcee...'-][m
+[31m[-     CALL FLUSH()-][m
+
+[31m[-     !initialize the walkers-][m
+[31m[-     DO j=1,nwalkers-][m
+
+[31m[-        !random initialization of each walker-][m
+[31m[-        CALL SET_PINIT_PRIORS(opos,prlo,prhi,velz=velz)-][m
+
+[31m[-        CALL STR2ARR(1,opos,pos_emcee_in(:,j))-][m
+
+[31m[-        IF (dopowell.EQ.1) THEN-][m
+[31m[-           !use the best-fit position from Powell, with small-][m
+[31m[-           !random offsets to set up all the walkers, but only-][m
+[31m[-           !do this for the params actually fit in Powell!-][m
+[31m[-           !the first two params are velz and sigma so give them-][m
+[31m[-           !larger variation.-][m
+[31m[-           DO i=1,npowell-][m
+[31m[-              IF (i.LE.2) wdth = 10.0-][m
+[31m[-              IF (i.GT.2) wdth = 0.1-][m
+[31m[-              pos_emcee_in(i,j) = bposarr(i) + wdth*(2.*myran()-1.0)-][m
+[31m[-              IF (pos_emcee_in(i,j).LE.prloarr(i)) &-][m
+[31m[-                   pos_emcee_in(i,j)=prloarr(i)+wdth-][m
+[31m[-              IF (pos_emcee_in(i,j).GE.prhiarr(i)) &-][m
+[31m[-                   pos_emcee_in(i,j)=prhiarr(i)-wdth-][m
+[31m[-           ENDDO-][m
+[31m[-        ENDIF-][m
+
+[31m[-        !Compute the initial log-probability for each walker-][m
+[31m[-        lp_emcee_in(j) = -0.5*func(pos_emcee_in(:, j))-][m
+
+[31m[-        !check for initialization errors-][m
+[31m[-        IF (-2.*lp_emcee_in(j).GE.huge_number/2.) THEN-][m
+[31m[-           WRITE(*,*) 'ALF ERROR: initial lnp out of bounds!', j-][m
+[31m[-           DO i=1,npar-][m
+[31m[-              IF (pos_emcee_in(i,j).GT.prhiarr(i).OR.&-][m
+[31m[-                   pos_emcee_in(i,j).LT.prloarr(i)) THEN-][m
+[31m[-                 WRITE(*,*) i, pos_emcee_in(i,j), prloarr(i), prhiarr(i)-][m
+[31m[-              ENDIF-][m
+[31m[-           ENDDO-][m
+[31m[-           STOP-][m
+[31m[-        ENDIF-][m
+
+[31m[-     ENDDO-][m
+
+[31m[-     !burn-in-][m
+[31m[-     WRITE(*,*) '   burning in...'-][m
+[31m[-     WRITE(*,'(A)',advance='no') '      Progress:'-][m
+[31m[-     DO i=1,nburn-][m
+[31m[-        CALL EMCEE_ADVANCE_MPI(npar,nwalkers,2.d0,pos_emcee_in,&-][m
+[31m[-             lp_emcee_in,pos_emcee_out,lp_emcee_out,accept_emcee,ntasks-1)-][m
+[31m[-        pos_emcee_in = pos_emcee_out-][m
+[31m[-        lp_emcee_in  = lp_emcee_out-][m
+[31m[-        IF (i.EQ.nburn/4.*1) THEN-][m
+[31m[-           WRITE (*,'(A)',advance='no') ' ...25%'-][m
+[31m[-           CALL FLUSH()-][m
+[31m[-         ENDIF-][m
+[31m[-        IF (i.EQ.nburn/4.*2) THEN-][m
+[31m[-           WRITE (*,'(A)',advance='no') '...50%'-][m
+[31m[-           CALL FLUSH()-][m
+[31m[-        ENDIF-][m
+[31m[-        IF (i.EQ.nburn/4.*3) THEN-][m
+[31m[-           WRITE (*,'(A)',advance='no') '...75%'-][m
+[31m[-           CALL FLUSH()-][m
+[31m[-        ENDIF-][m
+[31m[-     ENDDO-][m
+[31m[-     WRITE (*,'(A)') '...100%'-][m
+[31m[-     CALL FLUSH()-][m
+
+
+[31m[-     !burn-in V2-][m
+[31m[-     IF (moreburn.EQ.1) THEN-][m
+
+[31m[-        ml    = MAXLOC(lp_emcee_in,1)-][m
+[31m[-        bposarr  = pos_emcee_in(:,ml)-][m
+
+[31m[-        DO j=1,nwalkers-][m
+[31m[-           DO i=1,npar-][m
+[31m[-              IF (i.LE.2) wdth = 10.0-][m
+[31m[-              IF (i.GT.2) wdth = 0.05-][m
+[31m[-              pos_emcee_in(i,j) = bposarr(i) + wdth*(2.*myran()-1.0)-][m
+[31m[-              IF (pos_emcee_in(i,j).LE.prloarr(i)) &-][m
+[31m[-                   pos_emcee_in(i,j)=prloarr(i)+wdth-][m
+[31m[-              IF (pos_emcee_in(i,j).GE.prhiarr(i)) &-][m
+[31m[-                   pos_emcee_in(i,j)=prhiarr(i)-wdth-][m
+[31m[-           ENDDO-][m
+
+[31m[-           !Compute the initial log-probability for each walker-][m
+[31m[-           lp_emcee_in(j) = -0.5*func(pos_emcee_in(:, j))-][m
+[31m[-        ENDDO-][m
+
+
+[31m[-        WRITE(*,*) '   burning in (V2)...'-][m
+[31m[-        WRITE(*,'(A)',advance='no') '      Progress:'-][m
+[31m[-        DO i=1,nburn-][m
+[31m[-           CALL EMCEE_ADVANCE_MPI(npar,nwalkers,2.d0,pos_emcee_in,&-][m
+[31m[-                lp_emcee_in,pos_emcee_out,lp_emcee_out,accept_emcee,ntasks-1)-][m
+[31m[-           pos_emcee_in = pos_emcee_out-][m
+[31m[-           lp_emcee_in  = lp_emcee_out-][m
+[31m[-           IF (i.EQ.nburn/4.*1) THEN-][m
+[31m[-              WRITE (*,'(A)',advance='no') ' ...25%'-][m
+[31m[-              CALL FLUSH()-][m
+[31m[-           ENDIF-][m
+[31m[-           IF (i.EQ.nburn/4.*2) THEN-][m
+[31m[-              WRITE (*,'(A)',advance='no') '...50%'-][m
+[31m[-              CALL FLUSH()-][m
+[31m[-           ENDIF-][m
+[31m[-           IF (i.EQ.nburn/4.*3) THEN-][m
+[31m[-              WRITE (*,'(A)',advance='no') '...75%'-][m
+[31m[-              CALL FLUSH()-][m
+[31m[-           ENDIF-][m
+[31m[-        ENDDO-][m
+[31m[-        WRITE (*,'(A)') '...100%'-][m
+[31m[-        CALL FLUSH()-][m
+
+[31m[-     END IF-][m
+
+
+
+[31m[-     !Run a production chain-][m
+[31m[-     WRITE(*,*) '   production run...'-][m
+
+[31m[-     IF (print_mcmc.EQ.1) THEN-][m
+[31m[-        !open output file-][m
+[31m[-        OPEN(12,FILE=TRIM(ALF_HOME)//TRIM(OUTDIR)//&-][m
+[31m[-             TRIM(file)//TRIM(tag)//'.mcmc',STATUS='REPLACE')-][m
+[31m[-     ENDIF-][m
+
+[31m[-     DO i=1,nmcmc-][m
+
+[31m[-        CALL EMCEE_ADVANCE_MPI(npar,nwalkers,2.d0,pos_emcee_in,&-][m
+[31m[-             lp_emcee_in,pos_emcee_out,lp_emcee_out,accept_emcee,ntasks-1)-][m
+[31m[-        pos_emcee_in = pos_emcee_out-][m
+[31m[-        lp_emcee_in  = lp_emcee_out-][m
+[31m[-        totacc       = totacc + SUM(accept_emcee)-][m
+
+[31m[-        DO j=1,nwalkers,nsample-][m
+
+[31m[-           CALL STR2ARR(2,opos,pos_emcee_in(:,j)) !arr->str-][m
+
+[31m[-           !turn off various parameters for computing M/L-][m
+[31m[-           opos%logemline_h    = -8.0-][m
+[31m[-           opos%logemline_oii  = -8.0-][m
+[31m[-           opos%logemline_oiii = -8.0-][m
+[31m[-           opos%logemline_nii  = -8.0-][m
+[31m[-           opos%logemline_sii  = -8.0-][m
+[31m[-           opos%logemline_ni   = -8.0-][m
+[31m[-           opos%logtrans       = -8.0-][m
+
+[31m[-           !compute the main sequence turn-off mass vs. t and Z-][m
+[31m[-           CALL GETMODEL(opos,mspecmw,mw=1)     !get spectrum for MW IMF-][m
+[31m[-           CALL GETM2L(lam,mspecmw,opos,m2lmw,mw=1) !compute M/L_MW-][m
+
+[31m[-           IF (mwimf.EQ.0) THEN-][m
+[31m[-              CALL GETMODEL(opos,mspec)-][m
+[31m[-              CALL GETM2L(lam,mspec,opos,m2l) ! compute M/L-][m
+[31m[-           ELSE-][m
+[31m[-              m2l   = m2lmw-][m
+[31m[-              mspec = mspecmw-][m
+[31m[-           ENDIF-][m
+
+[31m[-           !save each model spectrum-][m
+[31m[-           !mspec_mcmc(1+j+(i-1)*nwalkers/nsample,:) = mspec-][m
+
+[31m[-           !these parameters aren't actually being updated-][m
+[31m[-           IF (fit_indices.EQ.1) THEN-][m
+[31m[-              pos_emcee_in(1,j) = 0.0-][m
+[31m[-              pos_emcee_in(2,j) = sigma_indx-][m
+[31m[-           ENDIF-][m
+[31m[-           IF (fit_type.EQ.1) THEN-][m
+[31m[-              pos_emcee_in(nparsimp+1:,j) = 0.0-][m
+[31m[-           ELSE IF (fit_type.EQ.2) THEN-][m
+[31m[-              pos_emcee_in(npowell+1:,j) = 0.0-][m
+[31m[-           ENDIF-][m
+
+[31m[-           IF (print_mcmc.EQ.1) THEN-][m
+[31m[-              !write the chain element to file-][m
+[31m[-              WRITE(12,'(ES12.5,1x,99(F11.4,1x))') &-][m
+[31m[-                   -2.0*lp_emcee_in(j),pos_emcee_in(:,j),m2l,m2lmw-][m
+[31m[-           ENDIF-][m
+
+[31m[-           !keep the model with the lowest chi2-][m
+[31m[-           IF (-2.0*lp_emcee_in(j).LT.minchi2) THEN-][m
+[31m[-              bposarr = pos_emcee_in(:,j)-][m
+[31m[-              minchi2 = -2.0*lp_emcee_in(j)-][m
+[31m[-           ENDIF-][m
+
+[31m[-           CALL UPDATE_RUNTOT(runtot,pos_emcee_in(:,j),m2l,m2lmw)-][m
+
+[31m[-           !save each chain element-][m
+[31m[-           mcmcpar(1:npar,j+(i-1)*nwalkers/nsample) = pos_emcee_in(:,j)-][m
+[31m[-           mcmcpar(npar+1:npar+nfil,j+(i-1)*nwalkers/nsample)        = m2l-][m
+[31m[-           mcmcpar(npar+nfil+1:npar+2*nfil,j+(i-1)*nwalkers/nsample) = m2lmw-][m
+
+[31m[-        ENDDO-][m
+
+[31m[-     ENDDO-][m
+
+[31m[-     IF (print_mcmc.EQ.1) CLOSE(12)-][m
+
+[31m[-     !save the best position to the structure-][m
+[31m[-     CALL STR2ARR(2,bpos,bposarr)  !arr->str-][m
+[31m[-     bpos%chi2 = minchi2-][m
+
+[31m[-     !compute CLs-][m
+[31m[-     DO i=1,npar+2*nfil-][m
+[31m[-        sortpos = mcmcpar(i,:)-][m
+[31m[-        CALL SORT(sortpos)-][m
+[31m[-        cl2p5(i)  = sortpos(INT(0.025*nwalkers*nmcmc/nsample))-][m
+[31m[-        cl16(i)   = sortpos(INT(0.160*nwalkers*nmcmc/nsample))-][m
+[31m[-        cl50(i)   = sortpos(INT(0.500*nwalkers*nmcmc/nsample))-][m
+[31m[-        cl84(i)   = sortpos(INT(0.840*nwalkers*nmcmc/nsample))-][m
+[31m[-        cl97p5(i) = sortpos(INT(0.975*nwalkers*nmcmc/nsample))-][m
+[31m[-     ENDDO-][m
+
+[31m[-     CALL DATE_AND_TIME(TIME=time)-][m
+[31m[-     CALL DTIME(dumt,time2)-][m
+[31m[-     WRITE(*,*) 'End Time   '//time(1:2)//':'//time(3:4)-][m
+[31m[-     WRITE(*,'(" Elapsed Time: ",F5.2," hr")') time2/3600.-][m
+[31m[-     WRITE(*,*)-][m
+[31m[-     WRITE(*,'("  facc: ",F6.3)') REAL(totacc)/REAL(nmcmc*nwalkers)-][m
+
+
+[31m[-     !---------------------------------------------------------------!-][m
+[31m[-     !--------------------Write results to file----------------------!-][m
+[31m[-     !---------------------------------------------------------------!-][m
+
+[31m[-     !write a binary file of the production chain spectra-][m
+[31m[-     IF (print_mcmc_spec.EQ.1) THEN-][m
+[31m[-      !  mspec_mcmc(1,:) = lam-][m
+[31m[-      !  OPEN(11,FILE=TRIM(ALF_HOME)//TRIM(OUTDIR)//&-][m
+[31m[-      !       TRIM(file)//TRIM(tag)//'.spec',FORM='UNFORMATTED',&-][m
+[31m[-      !       STATUS='REPLACE',access='DIRECT',&-][m
+[31m[-      !       recl=(1+nmcmc*nwalkers/nsample)*nl*4)-][m
+[31m[-      !  WRITE(11,rec=1) mspec_mcmc-][m
+[31m[-      !  CLOSE(11)-][m
+[31m[-     ENDIF-][m
+
+[31m[-     OPEN(13,FILE=TRIM(ALF_HOME)//TRIM(OUTDIR)//&-][m
+[31m[-          TRIM(file)//TRIM(tag)//'.bestspec',STATUS='REPLACE')-][m
+[31m[-     CALL STR2ARR(1,bpos,bposarr)-][m
+[31m[-     !NB: the model written to file has the lowest chi^2-][m
+[31m[-     fret = func(bposarr,spec=mspec,funit=13)-][m
+[31m[-     CLOSE(13)-][m
+
+[31m[-     !write mean of the posterior distributions-][m
+[31m[-     OPEN(14,FILE=TRIM(ALF_HOME)//TRIM(OUTDIR)//&-][m
+[31m[-          TRIM(file)//TRIM(tag)//'.sum',STATUS='REPLACE')-][m
+[31m[-     WRITE(14,'("#   Elapsed Time: ",F6.2," hr")') time2/3600.-][m
+[31m[-     WRITE(14,'("#    ssp_type  =",A4)') ssp_type-][m
+[31m[-     WRITE(14,'("#    fit_type  =",I2)') fit_type-][m
+[31m[-     WRITE(14,'("#    imf_type  =",I2)') imf_type-][m
+[31m[-     WRITE(14,'("#  fit_hermite =",I2)') fit_hermite-][m
+[31m[-     WRITE(14,'("# fit_two_ages =",I2)') fit_two_ages-][m
+[31m[-     WRITE(14,'("#     nonpimf  =",I2)') nonpimf_alpha-][m
+[31m[-     WRITE(14,'("#   obs_frame  =",I2)') observed_frame-][m
+[31m[-     WRITE(14,'("#    fit_poly  =",I2)') fit_poly-][m
+[31m[-     WRITE(14,'("#       mwimf  =",I2)') mwimf-][m
+[31m[-     WRITE(14,'("#   age-dep Rf =",I2)') use_age_dep_resp_fcns-][m
+[31m[-     WRITE(14,'("#     Z-dep Rf =",I2)') use_z_dep_resp_fcns-][m
+[31m[-     WRITE(14,'("#   Nwalkers   = ",I6)') nwalkers-][m
+[31m[-     WRITE(14,'("#   Nburn      = ",I6)') nburn-][m
+[31m[-     WRITE(14,'("#   Nchain     = ",I6)') nmcmc-][m
+[31m[-     WRITE(14,'("#   Nsample    = ",I6)') nsample-][m
+[31m[-     WRITE(14,'("#   Nwave      = ",I6)') nl-][m
+[31m[-     WRITE(14,'("#   Ncores     = ",I6)') ntasks-][m
+[31m[-     WRITE(14,'("#   facc: ",F6.3)') REAL(totacc)/REAL(nmcmc*nwalkers)-][m
+[31m[-     WRITE(14,'("#   rows: mean posterior, pos(chi^2_min), 1 sigma errors, '//&-][m
+[31m[-          '2.5%, 16%, 50%, 84%, 97.5% CL, lower priors, upper priors ")')-][m
+
+[31m[-     !write mean of posteriors-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') bpos%chi2,runtot(2,:)/runtot(1,:)-][m
+
+[31m[-     !write position where chi^2=min-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') bpos%chi2,bposarr,m2l*0.0,m2lmw*0.0-][m
+
+[31m[-     !write 1 sigma errors-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') 0.0, &-][m
+[31m[-          SQRT( runtot(3,:)/runtot(1,:) - runtot(2,:)**2/runtot(1,:)**2 )-][m
+
+[31m[-     !write 2.5%, 16%, 50%, 84%, 97.5% CL-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') 0.0, cl2p5-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') 0.0, cl16-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') 0.0, cl50-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') 0.0, cl84-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') 0.0, cl97p5-][m
+
+[31m[-     !write lower/upper priors-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') 0.0,prloarr,m2l*0.0,m2lmw*0.0-][m
+[31m[-     WRITE(14,'(ES12.5,1x,99(F11.4,1x))') 0.0,prhiarr,m2l*0.0,m2lmw*0.0-][m
+
+[31m[-     CLOSE(14)-][m
+
+[31m[-     WRITE(*,*)-][m
+[31m[-     WRITE(*,'(" ************************************")')-][m
+
+[31m[-     !break the workers out of their event loops so they can close-][m
+[31m[-     CALL FREE_WORKERS(ntasks-1)-][m
+
+[31m[-  ENDIF-][m
+
+[31m[-  CALL MPI_FINALIZE(ierr)-][m
+
+
+[31m[-END PROGRAM ALF-][m
+[1mdiff --git a/src/alf_utils.f90 b/src/alf_utils.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/alf_vars.f90 b/src/alf_vars.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex 848e079..e001fe1[m
+[1m--- a/src/alf_vars.f90[m
+[1m+++ b/src/alf_vars.f90[m
+[36m@@ -1,6 +1,6 @@[m
+MODULE ALF_VARS[m
+
+  ! module to set up most arrays and variables 
+
+  IMPLICIT NONE[m
+  SAVE[m
+[36m@@ -16,12 +16,13 @@[m [mMODULE ALF_VARS[m
+
+  !-------------------set various parameters---------------------![m
+
+  !flags for the user to choose.  These can also be set at the 
+  !very beginning of alf.f90[m
+
+  !0: fit the full model (IMF, all abundances, nuisance params, etc)[m
+  !1: only fit velz, sigma, SSP age, Z, Fe,C,N,O,Mg,Si,Ca,Ti,Na[m
+  !2: only fit velz, sigma, SSP age, Z[m
+  [32m{+!3: only fit velz, sigma, SSP age, Z and [a/Fe]+}[m 
+  INTEGER :: fit_type=0[m
+
+  !turn on the use of age-dependent response functions[m
+[36m@@ -61,7 +62,7 @@[m [mMODULE ALF_VARS[m
+  REAL(DP) :: smooth_trans=0.0[m
+
+  !flag used to tell the code if we are fitting in powell mode or not[m
+  !this is set internally in the code 
+  INTEGER :: powell_fitting = 0[m
+
+  !IMF power-law slope within each bin for non-paramtric IMF[m
+[36m@@ -88,7 +89,7 @@[m [mMODULE ALF_VARS[m
+
+  !flag to turn on the use of an external, tabulated M/L prior[m
+  INTEGER :: extmlpr = 0[m
+  
+  !--------------------------------------------------------------![m
+  !  the options below have not been tested/used in a long time  ![m
+  !  and so are effectively deprecated                           ![m
+[36m@@ -96,7 +97,7 @@[m [mMODULE ALF_VARS[m
+
+  !fit a polynomial to the ratio of model and data[m
+  !if zero, then both data and model are continuum divided[m
+  INTEGER :: [31m[-fit_poly=0-][m[32m{+fit_poly=1+}[m
+  !mask emission lines? (if 0, then the em lines are incl in the fit)[m
+  INTEGER :: maskem=0[m
+  !apply template error function? (only works for SDSS stacks)[m
+[36m@@ -105,12 +106,12 @@[m [mMODULE ALF_VARS[m
+  INTEGER :: fake_response=0[m
+  !Turn off the IMF sensitivity at <7000A if this parameter is =1[m
+  INTEGER :: blueimf_off=0[m
+  
+  !--------------------------------------------------------------![m
+  !    the parameters below should not be modified unless you    ![m
+  !    really know what you are doing!                           ![m
+  !--------------------------------------------------------------![m
+  
+#if (VCJ)[m
+  !VCJ models[m
+  CHARACTER(3), PARAMETER :: ssp_type='vcj'[m
+[36m@@ -121,7 +122,7 @@[m [mMODULE ALF_VARS[m
+  INTEGER, PARAMETER :: nzmet3 = 1[m
+#endif[m
+
+  !nstart and nend allow us to use only a subset of 
+  !the full wavelength array[m
+  INTEGER, PARAMETER :: nstart = 100 !100   ! 0.36 um[m
+  INTEGER, PARAMETER :: nend   = 5830 !10566 (all) ! 5830 (1.10u)[m
+[36m@@ -157,6 +158,8 @@[m [mMODULE ALF_VARS[m
+  INTEGER, PARAMETER :: ndat = 30000[m
+  !total number of parameters in the simple model[m
+  INTEGER, PARAMETER :: nparsimp = 14[m
+  [32m{+!total number of parameters in the semi-simple model+}[m
+[32m{+  INTEGER, PARAMETER :: nparsemisimp = 5+}[m
+  !number of indices defined in allindices.dat[m
+  INTEGER, PARAMETER :: nindx=25[m
+  !number of filters[m
+[36m@@ -205,7 +208,7 @@[m [mMODULE ALF_VARS[m
+  !array storing the tabulated M/L prior[m
+  REAL(DP), DIMENSION(ndat,2) :: mlprtab=0.[m
+  INTEGER :: nmlprtabmax=1[m
+  
+  !array for the template error function[m
+  REAL(DP), DIMENSION(nl) :: temperrfcn=1.0[m
+
+[36m@@ -232,7 +235,7 @@[m [mMODULE ALF_VARS[m
+
+  !IMF slopes within each bin[m
+  REAL(DP), DIMENSION(nimfnp) :: npi_alphav=0., npi_renorm=1.0[m
+  
+  !---------------------Physical Constants-----------------------![m
+  !---------------in cgs units where applicable------------------![m
+
+[36m@@ -250,12 +253,12 @@[m [mMODULE ALF_VARS[m
+  !define small and large numbers[m
+  REAL(DP), PARAMETER :: huge_number = 1E33[m
+  REAL(DP), PARAMETER :: tiny_number = 1E-33[m
+  
+  !-------------------Define TYPE structures---------------------![m
+  
+  !structure for the set of parameters necessary to generate a model[m
+  TYPE PARAMS[m
+     REAL(DP) :: [31m[-velz=0.0,sigma=0.0,logage=1.0,zh=0.0,feh=0.0,ah=0.0,&-][m[32m{+velz=0.0,sigma=0.0,logage=1.0,zh=0.0,ah=0.0,feh=0.0,&+}[m
+          nhe=0.0,ch=0.0,nh=0.0,nah=0.0,mgh=0.0,sih=0.0,kh=0.0,&[m
+          cah=0.0,tih=0.0,vh=0.0,crh=0.0,mnh=0.0,coh=0.0,nih=0.0,&[m
+          cuh=0.0,srh=0.0,bah=0.0,euh=0.0,teff=0.0,imf1=1.3,imf2=2.3,&[m
+[36m@@ -266,7 +269,7 @@[m [mMODULE ALF_VARS[m
+          logsky=-4.0,imf4=0.0,h3=0.0,h4=0.0[m
+     REAL(DP) :: chi2=huge_number[m
+  END TYPE PARAMS[m
+  
+  !structure for the models[m
+  TYPE SSP[m
+     REAL(DP), DIMENSION(nl) :: lam,m7g[m
+[36m@@ -276,7 +279,7 @@[m [mMODULE ALF_VARS[m
+     REAL(DP), DIMENSION(nage_rfcn)     :: logagegrid_rfcn[m
+     REAL(DP), DIMENSION(nage)          :: logagegrid[m
+     REAL(DP), DIMENSION(nzmet)         :: logzgrid[m
+     REAL(DP), DIMENSION(nzmet3)        :: logzgrid2     
+     REAL(DP), DIMENSION(nl,nimf,nimf,nage,nzmet)        :: logssp[m
+     REAL(DP), DIMENSION(nl,nimf,nimf,nage,nmcut,nzmet3) :: logsspm[m
+     REAL(DP), DIMENSION(nl,nimfnp,nage,nzmet)           :: sspnp[m
+[36m@@ -303,7 +306,7 @@[m [mMODULE ALF_VARS[m
+  TYPE(SSP) :: sspgrid[m
+  !define the object for the raw data array[m
+  TYPE(TDATA), DIMENSION(ndat) :: data[m
+  
+  !define the object for the data interpolated to the model arr[m
+  !TYPE(TDATA), DIMENSION(nl)  :: idata[m
+
+[1mdiff --git a/src/alf_vars.mod b/src/alf_vars.mod[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex bb93b74..ee052e5[m
+Binary files a/src/alf_vars.mod and b/src/alf_vars.mod differ
+[1mdiff --git a/src/contnormspec.f90 b/src/contnormspec.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/emcee_advance.f90 b/src/emcee_advance.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/emcee_advance_mpi.f90 b/src/emcee_advance_mpi.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/free_workers.f90 b/src/free_workers.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/func.f90 b/src/func.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex a6602a5..0347b6c[m
+[1m--- a/src/func.f90[m
+[1m+++ b/src/func.f90[m
+[36m@@ -43,8 +43,9 @@[m [mFUNCTION FUNC(nposarr,spec,funit)[m
+  !in (super) simple mode or in powell fitting mode)[m
+  pr = 1.0[m
+  DO i=1,npar[m
+     IF [31m[-(i.GT.npowell.AND.(powell_fitting.EQ.1.OR.fit_type.EQ.2))-][m[32m{+(i.GT.npowell.AND.(powell_fitting.NE.0))+}[m CYCLE
+     IF (fit_type.EQ.1.AND.i.GT.nparsimp) CYCLE[m
+     [32m{+IF (fit_type.EQ.3.AND.i.GT.nparsemisimp) CYCLE+}[m
+     IF (fit_indices.EQ.1.AND.i.LE.2) CYCLE[m
+     IF ( (nposarr(i).GT.prhiarr(i)).OR.(nposarr(i).LT.prloarr(i)) ) pr=0.0[m
+  ENDDO[m
+[1mdiff --git a/src/function_parallel_map.f90 b/src/function_parallel_map.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/getindx.f90 b/src/getindx.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/getm2l.f90 b/src/getm2l.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/getmass.f90 b/src/getmass.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex c49a477..a3ddf88[m
+[1m--- a/src/getmass.f90[m
+[1m+++ b/src/getmass.f90[m
+[36m@@ -71,7 +71,7 @@[m [mFUNCTION GETMASS(mlo,mto,imf1,imf2,imfup,imf3,imf4,timfnorm)[m
+             0.077*m2**(-imf1+imf2)*(nslim**(-imfup+2)-mto**(-imfup+2))/(-imfup+2)/imfnorm[m
+     ENDIF[m
+
+  ELSE 
+
+     !non-parametric IMF[m
+     [m
+[1mdiff --git a/src/getmodel.f90 b/src/getmodel.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex 2f25f9e..3285af8[m
+[1m--- a/src/getmodel.f90[m
+[1m+++ b/src/getmodel.f90[m
+[36m@@ -245,9 +245,37 @@[m [mSUBROUTINE GETMODEL(pos,spec,mw)[m
+     dm2 = dm[m
+  ENDIF[m
+
+  [32m{+!semi-simple mode+}[m
+[32m{+  IF (powell_fitting.EQ.0.AND.fit_type.EQ.3) THEN+}[m
+
+[32m{+     !all alpha elements (and C, N) vary in lock-step+}[m
+
+[32m{+     !vary [O/H]+}[m
+[32m{+     CALL ADD_RESPONSE(spec,pos%ah,0.3,dr,vr,dm2,vm2,sspgrid%solar,sspgrid%ap)+}[m
+[32m{+     !vary [C/H]+}[m
+[32m{+     CALL ADD_RESPONSE(spec,pos%ah,0.15,dr,vr,dm2,vm2,sspgrid%solar,&+}[m
+[32m{+          sspgrid%cp,sspgrid%cm)+}[m
+[32m{+     !vary [N/H]+}[m
+[32m{+     CALL ADD_RESPONSE(spec,pos%ah,0.3,dr,vr,dm2,vm2,sspgrid%solar,&+}[m
+[32m{+          sspgrid%np,sspgrid%nm)+}[m
+[32m{+     !vary [Mg/H]+}[m
+[32m{+     CALL ADD_RESPONSE(spec,pos%ah,0.3,dr,vr,dm2,vm2,sspgrid%solar,&+}[m
+[32m{+          sspgrid%mgp,sspgrid%mgm)+}[m
+[32m{+     !vary [Si/H]+}[m
+[32m{+     CALL ADD_RESPONSE(spec,pos%ah,0.3,dr,vr,dm2,vm2,sspgrid%solar,&+}[m
+[32m{+          sspgrid%sip,sspgrid%sim)+}[m
+[32m{+     !vary [Ca/H]+}[m
+[32m{+     CALL ADD_RESPONSE(spec,pos%ah,0.3,dr,vr,dm2,vm2,sspgrid%solar,&+}[m
+[32m{+          sspgrid%cap,sspgrid%cam)+}[m
+[32m{+     !vary [Ti/H]+}[m
+[32m{+     CALL ADD_RESPONSE(spec,pos%ah,0.3,dr,vr,dm2,vm2,sspgrid%solar,&+}[m
+[32m{+          sspgrid%tip,sspgrid%tim)+}[m
+[32m{+     +}[m
+[32m{+  ENDIF+}[m
+  
+  !Only sigma, velz, logage, and [Z/H] are fit when either[m
+  !fitting in Powell mode or "super simple" mode[m
+  IF [31m[-(powell_fitting.EQ.0.AND.fit_type.NE.2)-][m[32m{+(powell_fitting.EQ.0.AND.(fit_type.EQ.0.OR.fit_type.EQ.1))+}[m THEN
+
+     !vary [Fe/H][m
+     CALL ADD_RESPONSE(spec,pos%feh,0.3,dr,vr,dm2,vm2,sspgrid%solar,&[m
+[1mdiff --git a/src/getvelz.f90 b/src/getvelz.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/init_random_seed.f90 b/src/init_random_seed.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/linterp.f90 b/src/linterp.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/linterp3.f90 b/src/linterp3.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/maskemlines.f90 b/src/maskemlines.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/ml_from_mcmc.f90 b/src/ml_from_mcmc.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/myran.f90 b/src/myran.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/brent.f90 b/src/nr/brent.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/covsrt.f90 b/src/nr/covsrt.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/gasdev.f90 b/src/nr/gasdev.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/gaussj.f90 b/src/nr/gaussj.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/lfit.f90 b/src/nr/lfit.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/linmin.f90 b/src/nr/linmin.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/locate.f90 b/src/nr/locate.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/mnbrak.f90 b/src/nr/mnbrak.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/nr.f90 b/src/nr/nr.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/nrtype.f90 b/src/nr/nrtype.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/nrutil.f90 b/src/nr/nrutil.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/powell.f90 b/src/nr/powell.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/ran1.f90 b/src/nr/ran1.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/ran_state.f90 b/src/nr/ran_state.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/nr/sort.f90 b/src/nr/sort.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/read_data.f90 b/src/read_data.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/set_pinit_priors.f90 b/src/set_pinit_priors.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/setup.f90 b/src/setup.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex 6c480c1..7e94153[m
+[1m--- a/src/setup.f90[m
+[1m+++ b/src/setup.f90[m
+[36m@@ -501,8 +501,8 @@[m [mSUBROUTINE SETUP()[m
+     ENDDO[m
+
+     !smooth the response functions[m
+     DO [31m[-k=1,nzmet-][m[32m{+k=nzmet-1,nzmet+}[m
+        DO [31m[-j=1,nage_rfcn-][m[32m{+j=nage_rfcn-1,nage_rfcn+}[m
+           CALL VELBROAD(lam,sspgrid%solar(:,j,k),sig0,lamlo,lamhi,smooth)[m
+           CALL VELBROAD(lam,sspgrid%nap(:,j,k),sig0,lamlo,lamhi,smooth)[m
+           CALL VELBROAD(lam,sspgrid%nam(:,j,k),sig0,lamlo,lamhi,smooth)[m
+[1mdiff --git a/src/spec_from_sum.f90 b/src/spec_from_sum.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex 1140a3a..76e66dd[m
+[1m--- a/src/spec_from_sum.f90[m
+[1m+++ b/src/spec_from_sum.f90[m
+[36m@@ -1,6 +1,6 @@[m
+PROGRAM SPEC_FROM_SUM[m
+
+  !takes a *sum file as input and returns the corresponding 
+  !model spectrum associated with min(chi^2)[m
+
+  USE alf_vars; USE alf_utils[m
+[36m@@ -70,7 +70,7 @@[m [mPROGRAM SPEC_FROM_SUM[m
+     ENDIF[m
+   ENDDO[m
+  BACKSPACE(11)[m
+  
+  READ(11,*) !burn the row containing the mean parameters[m
+  READ(11,*) d1,posarr,mlx2[m
+  CLOSE(11)[m
+[36m@@ -98,13 +98,13 @@[m [mPROGRAM SPEC_FROM_SUM[m
+
+  !pos%loghot = -8.0[m
+  !pos%sigma = 0.0[m
+  
+  !------------------------------------------------------------![m
+
+
+  !get the model spectrum[m
+  CALL GETMODEL(pos,mspec)[m
+     
+  !redshift the spectrum[m
+  oneplusz = (1+pos%velz/clight*1E5)[m
+  zmspec   = 0.0[m
+[1mdiff --git a/src/str2arr.f90 b/src/str2arr.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/tsum.f90 b/src/tsum.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/update_runtot.f90 b/src/update_runtot.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/vacairconv.f90 b/src/vacairconv.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/velbroad.f90 b/src/velbroad.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mdiff --git a/src/write_a_model.f90 b/src/write_a_model.f90[m
+[1mold mode 100644[m
+[1mnew mode 100755[m
+[1mindex 29753fb..59ace8c[m
+[1m--- a/src/write_a_model.f90[m
+[1m+++ b/src/write_a_model.f90[m
+[36m@@ -68,24 +68,24 @@[m [mPROGRAM WRITE_A_MODEL[m
+        WRITE(is,'(I2)') j[m
+     ENDIF[m
+
+     file = [31m[-'zsol_a+0.3.dat'-][m[32m{+'t09_zsol.dat'+}[m
+     pos%sigma  = [31m[-200.00-][m[32m{+0.0+}[m
+
+     s2n  = [31m[-1000.-][m[32m{+100000.+}[m  !S/N per A
+ [m
+     pos%logage = [31m[-LOG10(10.0)-][m[32m{+LOG10(9.0)+}[m
+     pos%zh     = 0.0[m
+   [32m{+!+}[m  pos%ch     = 0.3
+   [32m{+!+}[m  pos%nh     = 0.3
+     emnorm     = -8.0[m
+
+  [32m{+!+}[m   pos%mgh = 0.3
+  [32m{+!+}[m   pos%ah = 0.3
+  [32m{+!+}[m   pos%tih = 0.3
+  [32m{+!+}[m   pos%cah = 0.3
+  [32m{+!+}[m   pos%sih = 0.3
+
+     pos%imf1   = [31m[-2.3-][m[32m{+1.3+}[m
+     pos%imf2   = 2.3[m
+     pos%imf3   = 0.08[m
+
+[36m@@ -116,7 +116,7 @@[m [mPROGRAM WRITE_A_MODEL[m
+           s2np = s2n*SQRT(2.5)[m
+        ENDIF[m
+        err(i)   = mspec(i)/s2np[m
+        gspec(i) = mspec(i) [31m[-+-][m[32m{+!++}[m err(i)*gdev(i)
+     ENDDO[m
+ [m
+     !write model spectrum to file[m
