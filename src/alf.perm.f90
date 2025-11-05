@@ -148,7 +148,7 @@ PROGRAM ALF
 
   prlo%velz = -999.0
   prhi%velz = 999.0
-  opos%velz = 2500.0
+  !opos%velz = 2500.0
 
 !   prhi%ah = 1.0
 !   prhi%mgh = 1.0

@@ -1,0 +1,83 @@
+#!/usr/bin/bash -l
+#SBATCH -p cmb
+#SBATCH --job-name="alf_NGC3630_SN100_aperture"
+#SBATCH -D "/mnt/extraspace/poci/alf/NGC3630"
+#SBATCH --time=2-00:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=21
+#SBATCH --mem-per-cpu=2200
+#SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL
+#SBATCH --mail-user=adriano.poci@students.mq.edu.au
+#SBATCH -o "/mnt/extraspace/poci/alf/NGC3630/out.log" # Standard out to galaxy
+#SBATCH -e "/mnt/extraspace/poci/alf/NGC3630/out.log" # Standard err to galaxy
+#SBATCH --open-mode=append
+
+source ${HOME}/.bashrc
+
+module purge || true
+module load gcc/13.2
+module load openmpi
+module load python/3.11.4
+export ALF_HOME=/mnt/extraspace/poci/alf/
+export PSM2_CUDA=0
+export PMIX_MCA_gds=hash
+
+### Compile clean version of `alf`
+cd ${ALF_HOME}src
+cp alf.perm.f90 alf.f90
+## Set fallback value to systemic velocity of the galaxy
+# Replace the placeholder value in `sed` script
+cp ${ALF_HOME}NGC3630/alf_replace.sed ${ALF_HOME}NGC3630/alf_replace.tmp
+sed -i "s/velz = 999/velz = 2066.608983812068/g" ${ALF_HOME}NGC3630/alf_replace.tmp
+# Run `sed` using the multi-line script
+# Pipe to temporary file
+sed -n -f ${ALF_HOME}NGC3630/alf_replace.tmp alf.f90 >> alf_tmp.f90
+mv alf_tmp.f90 alf.f90
+rm ${ALF_HOME}NGC3630/alf_replace.tmp
+# Remove prior placeholders on velz
+sed -i "s/prlo%velz = -999.0/prlo%velz = 1551.290774423239/g" alf.f90
+sed -i "s/prhi%velz = 999.0/prhi%velz = 2581.042923984027/g" alf.f90
+sed -i "s/velz=9999/velz=2025.2768041358265)/g" alf.f90
+make clean && make all && make clean
+
+cd ${ALF_HOME}
+[[ ! -d NGC3630/bin ]] && mkdir -p NGC3630/bin
+rm NGC3630/bin/*
+cp bin/* NGC3630/bin/
+# Run aperture fit
+mpirun --bind-to core --map-by core ./NGC3630/bin/alf.exe "NGC3630_SN100_aperture" 2>&1 | tee -a "NGC3630/out_aperture.log"
+
+# Read in the aperture fit
+Ipy='ipython --pylab --pprint --autoindent'
+galax='NGC3630'
+SN=100
+pythonOutput=$($Ipy alf_aperRead.py -- -g "$galax" -sn "$SN" -dc "")
+echo "$pythonOutput" 2>&1 | tee -a "NGC3630/out_aperture.log"
+# Temporary variable for the last line of the Python output
+readarray -t tmp <<< $(echo "$pythonOutput" | tail -n1)
+# Transform into bash array
+IFS=',' read -ra aperKin <<< "$tmp"
+echo "${aperKin[*]}" 2>&1 | tee -a "NGC3630/out_aperture.log"
+
+### Compile modified velocity priors
+cd ${ALF_HOME}src
+cp alf.perm.f90 alf.f90
+# `bc` arithmetic to define the lower and upper velocity bounds
+newVLo=$(bc -l <<< "(${aperKin[0]} - ${aperKin[1]}) - 10.0 * (${aperKin[2]} + ${aperKin[3]})")
+newVHi=$(bc -l <<< "(${aperKin[0]} + ${aperKin[1]}) + 10.0 * (${aperKin[2]} + ${aperKin[3]})")
+sed -i "s/prlo%velz = -999.0/prlo%velz = ${newVLo}/g" alf.f90
+sed -i "s/prhi%velz = 999.0/prhi%velz = ${newVHi}/g" alf.f90
+sed -i "s/velz=9999/velz=2025.2768041358265)/g" alf.f90
+# Replace the placeholder value in `sed` script
+sed -i "s/velz = 999/velz = ${aperKin[0]}/g" ${ALF_HOME}NGC3630/alf_replace.sed
+# Run `sed` using the multi-line script
+# Pipe to temporary file
+sed -n -f ${ALF_HOME}NGC3630/alf_replace.sed alf.f90 >> alf_tmp.f90
+mv alf_tmp.f90 alf.f90
+
+make clean && make all && make clean
+
+# Move executables to local directory
+cd ${ALF_HOME}
+cp bin/* NGC3630/bin/
+/usr/bin/bash -lc /mnt/extraspace/poci/alf/NGC3630/alfG.qsys

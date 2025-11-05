@@ -77,15 +77,20 @@ v1.26:  Standardised colourmaps for diverging and monotonic maps. 26 July 2024
 v1.27:  Allow reading in incomplete ALF runs in `afh`. 14 April 2025
 v1.28:  Use `corrected` individual abundances. 5 June 2025
 v1.19:  Compute and plot the total metallicity `[Z/H]`. 7 June 2025
+v1.20:  Converted to `PowerBin` for binning scheme. 15 October 2025
+v1.21:  Replaced `photFilt` and `band` with `filt` kwarg. 22 October 2025
+v1.22:  Introduced toggle between binning algorithms. 23 October 2025
 """
 from __future__ import print_function, division
 
 # General modules
 import os, re
 import traceback, warnings
-import json
 import sys
 import pdb
+import time
+import json
+import signal
 import pathlib as plp
 from copy import copy
 from glob import glob
@@ -123,6 +128,7 @@ from dynamics.IFU.Galaxy import Redshift, Photometry, pieceIMF
 # Dynamics modules
 from mgefit.find_galaxy import find_galaxy
 from vorbin.voronoi_2d_binning import voronoi_2d_binning as v2db
+from powerbin import PowerBin
 from plotbin.display_bins import display_bins as dbi
 from plotbin.display_pixels import display_pixels as dpp
 from plotbin.symmetrize_velfield import symmetrize_velfield as syvf
@@ -162,7 +168,7 @@ def _mpCount( j, gSpec, mpCount ):
 
 # ------------------------------------------------------------------------------
 
-def vorBinNumber(galaxy, SN, full=False, voro=None, dcName=''):
+def binNumber(galaxy, SN, full=False, binni=None, dcName=''):
     SN = int(SN)
 
     if not full:
@@ -173,19 +179,19 @@ def vorBinNumber(galaxy, SN, full=False, voro=None, dcName=''):
     gDir = curdir/f"{galaxy}{dcName}"
 
     pifs = gDir/f"pixels_SN{SN:d}.xz"
-    vofs = gDir/f"voronoi_SN{SN:02d}_{tEnd}.xz"
+    bofs = gDir/f"binning_SN{SN:02d}_{tEnd}.xz"
     sefs = gDir/f"selection_SN{SN:02d}_{tEnd}.xz"
 
-    if isinstance(voro, type(None)):
-        VB = au.Load.lzma(vofs)
+    if isinstance(binni, type(None)):
+        PB = au.Load.lzma(bofs)
     else:
-        VB = voro
+        PB = binni
     saur, goods = au.Load.lzma(sefs)
     xpix, ypix, sele, pixs = au.Load.lzma(pifs)
-    xbin, ybin = VB['xbin'], VB['ybin']
+    xbin, ybin = PB['xbin'], PB['ybin']
     xpix = np.compress(goods, xpix)
     ypix = np.compress(goods, ypix)
-    binNum = VB['binNum']
+    binNum = PB['binNum']
 
     BNImg, _, _, _ = POT.map2img(xpix, ypix, binNum, pixSize=pixs)
 
@@ -194,21 +200,19 @@ def vorBinNumber(galaxy, SN, full=False, voro=None, dcName=''):
 
 # ------------------------------------------------------------------------------
 
-def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
+def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), sin=True, targetSN=60,
        minSN=1, full=False, quick=False, kfn=None, dcName='',
        instrument='muse', qProps=dict(timeMax=168, module=[]), smask=[],
-       variance=True, priors=True, **kwargs):
+       variance=True, priors=True, qsys='slurm', binScheme='voronoi', **kwargs):
     """
     Collates the necessary data to feed into pPXF for NGC 3115
     Args
     ----
         galaxy (str): The name of the galaxy
         kPath (str): the directory containing the reduced data cube
-        vbin (bool): toggles whether to Voronoi-bin the spectra
-        targetSN (int): the target S/N required by the Voronoi tesselation
-            algorithm
-        minSN (int): the minimum S/N for a spaxel to be included in the Voronoi
-            binning
+        sin (bool): toggles whether to bin the spectra
+        targetSN (int): the target S/N required by the binning algorithm
+        minSN (int): the minimum S/N for a spaxel to be included in the binning
         full (bool): toggles whether to fit the entire spectral range of the
             data, or truncate to some pre-defined range
         quick (bool): directive for plotting and printing commands
@@ -231,9 +235,13 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
             variance. Otherwise assumed to be StD
         priors (bool): toggles whether to use the aperture fit to set priors for
             the remaining fits
+        binScheme (str): the binning scheme to use. Options are:
+            'voronoi': Voronoi binning
+            'power': Power binning
     Examples
     --------
     am.aap('ESO484-036', kPath=am.dDir/'GECKOSMaps', full=True, qProps=dict(queue='cmb', timeMax=72, module=[['gcc', '13.2'], ['openmpi'], ['python', '3.11.7']]), smask=[[4700, 4750], [7580, 7700], [8970, 9100]], minSN=1.5, targetSN=100)
+    am.aap('NGC3630', kPath=am.dDir/'GECKOSCubes', full=True, qProps=dict(queue='cmb', module=[['gcc', '13.2'], ['openmpi'], ['python', '3.11.4']], sarray=False, NCPU=21), smask=[[4700, 4750], [5575, 5580], [6297, 6302], [6861, 6943], [7580, 7700], [8120, 8201], [8825, 8830], [8900, 9100]], minSN=1.5, targetSN=100, qsys='glamdring')
     """
     targetSN = int(targetSN)
 
@@ -292,9 +300,9 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         kfn = plp.Path(kfn).name
 
     # Sort out file existence
-    pixels, voronoi, selection, srn, kines, cubeCube = [False]*6
+    pixels, binning, selection, srn, kines, cubeCube = [False]*6
     pifs = gDir/f"pixels_SN{targetSN:02d}.xz"
-    vofs = gDir/f"voronoi_SN{targetSN:02d}_{tEnd}.xz"
+    bofs = gDir/f"binning_SN{targetSN:02d}_{tEnd}.xz"
     sefs = gDir/f"selection_SN{targetSN:02d}_{tEnd}.xz"
     snfs = gDir/f"SNR_{tEnd}.xz"
     gfs = curdir.parent/'muse'/'obsData'/f"{galaxy}.xz"
@@ -312,7 +320,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         except StopIteration:
             cubeCube = None
     pixels = pifs.exists()
-    voronoi = vofs.exists()
+    binning = bofs.exists()
     selection = sefs.exists()
     srn = snfs.exists()
     if not jfn.exists():
@@ -335,7 +343,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
 
     print(f"\n\nOptions:\n"+\
         f"{'': <4s}{'Pixel': <10s}: {str(pixels): <5s} ({pifs.name})\n"+\
-        f"{'': <4s}{'Voronoi': <10s}: {str(voronoi): <5s} ({vofs.name})\n"+\
+        f"{'': <4s}{'Binning': <10s}: {str(binning): <5s} ({bofs.name})\n"+\
         f"{'': <4s}{'Selection': <10s}: {str(selection): <5s} "+\
                 f"({sefs.name})\n"+\
         f"{'': <4s}{'Kinematics': <10s}: {str(kines): <5s} ({kinF.name})\n"+\
@@ -831,29 +839,38 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     #   sele
 
     loop = False
-    if vbin and voronoi:
-        print('Reading Voronoi-binned data...')
-        VB = au.Load.lzma(vofs)
-        xp = VB['xbin']
-        yp = VB['ybin']
-        binNum = VB['binNum']
-        nPixels = VB['nPixels']
-        # scale = VB['scale']
-        endSN = VB['endSN']
-        gspecs = VB['binSpec']
-        stats = VB['binStat']
-        # logLam = VB['logLam']
+    if sin and binning:
+        print('Reading binned data...')
+        PB = au.Load.lzma(bofs)
+        if 'scheme' in PB.keys():
+            if PB['scheme'] != binScheme:
+                raise RuntimeWarning(f"[Binning] Binning scheme mismatch: "\
+                    f"{PB['scheme']} != {binScheme}. Re-running binning.")
+                loop = True
+        xp = PB['xbin']
+        yp = PB['ybin']
+        binNum = PB['binNum']
+        nPixels = PB['nPixels']
+        # scale = PB['scale']
+        endSN = PB['endSN']
+        gspecs = PB['binSpec']
+        stats = PB['binStat']
+        # logLam = PB['logLam']
 
         nbins = xp.size
 
+        aperSpec = PB['aperSpec']
+
         print('Done.', flush=True)
-    elif vbin: # Voronoi-binning is desired, but the raw cube needs to be loaded
+    elif sin: # binning is desired, but the raw cube needs to be loaded
         loop = True
-    if (not vbin) or loop:
+    if (not sin) or loop:
 
         print('Generating spectral data...')
         print(f"{'': <4s}Reshaping `gspecs`...")
         # use full length to get the right shape
+        if isinstance(hData, type(None)):
+            hData = np.ma.masked_invalid(hdu[dataExt].data)
         gspecs = np.compress(sele, hData.reshape(nL, -1), axis=1)
         print(f"{'': <4s}Reshaping `stats`...")
         # use full length to get the right shape
@@ -897,9 +914,9 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
                 noise = np.abs(np.ma.median(stats[lMask, :], axis=0))
                 SNR = np.divide(signal, noise)
                 au.Write.lzma(snfs, SNR)
-            snEps, snPA, snRad, snMask = SNRing(
-                SNR, minSN, xp, yp, flux, pixs, debug=True, galaxyPath=gDir,
-                fgFrac=fgFrac)
+            
+            _, _, _, snMask = SNRing(SNR, minSN, xp, yp, flux, pixs, debug=True,
+                galaxyPath=gDir, fgFrac=fgFrac)
             # maximum 10% NaN or negative values
             goods = (nNaN < llen/20.) & (nNeg < llen/20.) & (SNR >= minSN) & \
                 snMask
@@ -937,32 +954,53 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         plt.close('all')
         print('Done.', flush=True)
 
-        if vbin:
+        if sin:
             try:
-                print('Running Voronoi tesselation binning...', flush=True)
+                print('Running binning...', flush=True)
                 gMed = np.ma.median(gspecs[lMask, :], axis=0)
                 sMed = np.ma.median(stats[lMask, :], axis=0)  # median(1σ)
-                sMed[np.ma.getmaskarray(sMed)] = np.ma.median(sMed)
                 # one last check
-                binNum, xpin, ypin, xbar, ybar, endSN, nPixels, scale = v2db(
-                    xp, yp, gMed, sMed, targetSN, plot=True, quiet=quick,
-                    pixelsize=pixs)
-                plt.savefig(gDir/f"v2db_SN{targetSN:02d}")
-                plt.close('all')
-                plt.clf()
-                VB = dict()
-                VB['binNum'] = binNum
-                VB['xbin'] = xpin
-                VB['ybin'] = ypin
-                VB['xbar'] = xbar
-                VB['ybar'] = ybar
-                VB['endSN'] = endSN
-                VB['nPixels'] = nPixels
-                # VB['scale'] = scale
-                VB['lVal'] = lmin
-                VB['lN'] = llen
-                VB['lDel'] = dhdr['CD3_3']
-                VB['photPA'] = photPA
+                sMed[np.ma.getmaskarray(sMed)] = np.ma.median(sMed)
+
+                PB = dict()
+                if 'voronoi' in binScheme:
+                    binNum, xbin, ybin, xbar, ybar, endSN, nPixels, scale = \
+                        v2db(xp, yp, gMed, sMed, targetSN, plot=True,
+                        quiet=quick, pixelsize=pixs
+                    )
+                    plt.savefig(gDir/f"v2db_SN{targetSN:02d}")
+                    plt.close('all')
+                    plt.clf()
+                elif 'power' in binScheme:
+                    def capacity_spec(index):
+                        """Calculates (S/N)^2 for a bin from its pixel indices."""
+                        # Standard S/N formula for uncorrelated noise
+                        sn = np.sum(gMed[index]) / np.sqrt(np.sum(sMed[index]**2))
+                        return sn**2
+                    powb = PowerBin(np.column_stack((xp, yp)), capacity_spec,
+                        target_capacity=targetSN**2, pixelsize=pixs)
+                    plt.clf()
+                    powb.plot(capacity_scale='sqrt', ylabel='S/N')
+                    plt.savefig(gDir/f"bin2d_SN{targetSN:02d}")
+                    plt.close('all')
+                    plt.clf()
+                    binNum = powb.bin_num
+                    endSN = np.sqrt(powb.bin_capacity)
+                    nPixels = powb.npix
+                    xbin, ybin = powb.xybin.T
+                else:
+                    raise ValueError(f"Unknown binning scheme: {binScheme}")
+
+                PB['binNum'] = binNum
+                PB['xbin'], PB['ybin'] = xbin, ybin
+                PB['endSN'] = endSN
+                PB['nPixels'] = nPixels
+                # PB['scale'] = scale
+                PB['lVal'] = lmin
+                PB['lN'] = llen
+                PB['lDel'] = dhdr['CD3_3']
+                PB['photPA'] = photPA
+                PB['scheme'] = binScheme
 
                 uniBins = np.unique(binNum)
                 nbins = uniBins.size
@@ -984,26 +1022,21 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
                     binSize[obi] = bsize
                     binFlux[obi] = np.ma.sum(binSpec[:, obi])/bsize
                 print('Done.', flush=True)
-                VB['binSpec'] = binSpec
-                VB['binStat'] = binStat
-                VB['binFlux'] = binFlux
-                VB['binCounts'] = binSize
-                if 'rEMaj' in gal.keys():
-                    ReMaj = gal['rEMaj']
-                    # Give the effective radius in arcseconds
-                elif 'rE' in gal.keys():
-                    ReMaj = gal['rE']
-                else:
-                    warnings.warn("Using default R_e = 10''", RuntimeWarning)
-                    ReMaj = 10.0
-                apIdx = np.where(np.sqrt(xp**2 + (yp/fcfg.eps)**2) <= ReMaj)[0]
-                VB['aperSpec'] = np.squeeze(np.ma.sum(np.atleast_2d(
-                    np.take(gspecs, apIdx, axis=1)), axis=1))
-                VB['aperStat'] = np.sqrt(np.squeeze(np.ma.sum(np.atleast_2d(
-                    np.take(stats, apIdx, axis=1)**2), axis=1)))
-                au.Write.lzma(vofs, VB, preset=6)
+                PB['binSpec'] = binSpec
+                PB['binStat'] = binStat
+                PB['binFlux'] = binFlux
+                PB['binCounts'] = binSize
 
-                vorBinNumber(galaxy, targetSN, full, voro=VB, dcName=dcName)
+                apIdx = np.where(np.sqrt(xp**2 + (yp/fcfg.eps)**2) <= ReMaj)[0]
+                aperSpec = np.squeeze(np.ma.sum(np.atleast_2d(
+                    np.take(gspecs, apIdx, axis=1)), axis=1))
+                aperStat = np.sqrt(np.squeeze(np.ma.sum(np.atleast_2d(
+                    np.take(stats, apIdx, axis=1)**2), axis=1)))
+                PB['aperSpec'] = aperSpec
+                PB['aperStat'] = aperStat
+                au.Write.lzma(bofs, PB, preset=6)
+
+                binNumber(galaxy, targetSN, full, binni=PB, dcName=dcName)
 
                 print('Done.', flush=True)
             except:
@@ -1026,7 +1059,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     print(f"Spectral Range=[{smin: .3f}, {smax: .3f}]", flush=True)
     fig = plt.figure(figsize=plt.figaspect(1./10.))
     ax = fig.gca()
-    ax.plot(lPix, VB['aperSpec'], lw=0.4)
+    ax.plot(lPix, PB['aperSpec'], lw=0.4)
     for pair in smask:
         ax.axvspan(pair[0], pair[1], alpha=0.5, facecolor='r', edgecolor=None,
             fill=True)
@@ -1034,7 +1067,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     au.Write.lzma(gDir/'apertureSpec.figz', fig)
     fig = plt.figure(figsize=plt.figaspect(1./10.))
     ax = fig.gca()
-    ax.plot(lPix, VB['binSpec'][:, 0], lw=0.4)
+    ax.plot(lPix, PB['binSpec'][:, 0], lw=0.4)
     for pair in smask:
         ax.axvspan(pair[0], pair[1], alpha=0.5, facecolor='r', edgecolor=None,
             fill=True)
@@ -1045,7 +1078,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
     output['lDel'] = dhdr['CD3_3']
     output['dhdr'] = dhdr
     output['shdr'] = shdr
-    if vbin:
+    if sin:
         output['binNum'] = binNum
         output['SN'] = endSN
         output['nPixels'] = nPixels
@@ -1065,17 +1098,130 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), vbin=True, targetSN=60,
         wRange=[smin, smax], smask=smask, dcName=dcName)
 
     au.alfWrite(galaxy, targetSN, nbins, RZ, qProps=qProps, priors=priors,
-        dcName=dcName)
+        dcName=dcName, qsys=qsys)
     plt.close('all')
+
+# ------------------------------------------------------------------------------
+
+def _tail(s: str, n: int = 4000) -> str:
+    return s[-n:] if s and len(s) > n else (s or "")
+
+def _run_spec_from_sum(aper: int, *, galaxy: str, SN: int, dcName: str,
+                       exe_dir: str = ".") -> dict:
+    """
+    Run spec_from_sum.exe on a single target and capture diagnostics.
+
+    Parameters
+    ----------
+    mfn : str
+        Model/file name argument to pass to the executable.
+    galaxy : str
+        Galaxy name used to resolve the executable path.
+    dcName : str
+        Additional directory component used to resolve the path.
+    exe_dir : str, optional
+        Base directory containing the per-galaxy bin/ folder.
+
+    Returns
+    -------
+    dict
+        Structured result with keys:
+        - ok : bool
+        - returncode : int
+        - signal : int or None
+        - signal_name : str or None
+        - elapsed_s : float
+        - stdout, stderr : str (tail)
+        - cmd : list[str]
+        - hint : str (optional triage hint when failed)
+
+    Raises
+    ------
+    None
+        All exceptions are caught and folded into the result dict.
+
+    Examples
+    --------
+    >>> _run_spec_from_sum("NGC3630_SN100_0011", galaxy="NGC3630",
+    ...                    dcName="", exe_dir="/mnt/extraspace/poci/alf")
+    """
+    bin_path = f"{exe_dir}/{galaxy}{dcName}/bin/spec_from_sum.exe"
+    try:
+        suff = f"{aper:04d}"
+    except ValueError:
+        suff = f"{aper}"
+    mfn = f"{galaxy}_SN{SN:02d}_{suff}"
+    cmd = [bin_path, mfn]
+
+    # Ensure we don’t inherit silly thread counts from the parent.
+    env = os.environ.copy()
+    for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS",
+              "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        env.setdefault(k, "1")
+
+    t0 = time.time()
+    res = {'ok': True}
+    try:
+        if not plp.Path(exe_dir, 'results', f"{mfn}.bestspec2").is_file() and \
+            plp.Path(exe_dir, 'results', f"{mfn}.bestspec").is_file():
+            p = sp.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            dt = time.time() - t0
+
+            sig = -p.returncode if p.returncode < 0 else None
+            sig_name = signal.Signals(sig).name if sig else None
+
+            res = {
+                "ok": p.returncode == 0,
+                "returncode": p.returncode,
+                "signal": sig,
+                "signal_name": sig_name,
+                "elapsed_s": dt,
+                "stdout": _tail(p.stdout),
+                "stderr": _tail(p.stderr),
+                "cmd": cmd,
+            }
+
+        if not res["ok"]:
+            # Helpful triage hints
+            if sig_name == "SIGKILL":
+                res["hint"] = (
+                    "Killed by OS (likely OOM or job limit). Try lowering NMP, "
+                    "set OMP/MKL/OPENBLAS threads=1, and check `dmesg`/scheduler logs."
+                )
+            elif sig_name in {"SIGSEGV", "SIGABRT"}:
+                res["hint"] = (
+                    "Native crash (SEGV/ABRT). Inspect stderr and consider running "
+                    "the command directly under gdb/valgrind."
+                )
+        return res
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "returncode": 999,
+            "signal": None,
+            "signal_name": None,
+            "elapsed_s": time.time() - t0,
+            "stdout": "",
+            "stderr": repr(e),
+            "cmd": cmd,
+            "hint": "Python-side exception while launching subprocess.",
+        }
 
 # ------------------------------------------------------------------------------
 
 def _mpSpecFromSum(aper, galaxy, SN, dcName=''):
     try:
-        tail = f"{aper:04d}"
+        suff = f"{aper:04d}"
     except ValueError:
-        tail = f"{aper}"
-    mfn = f"{galaxy}_SN{SN:02d}_{tail}"
+        suff = f"{aper}"
+    mfn = f"{galaxy}_SN{SN:02d}_{suff}"
     if not (curdir/'results'/f"{mfn}.bestspec2").is_file() and \
         (curdir/'results'/f"{mfn}.bestspec").is_file():
         # Generate model on longer wavelength range
@@ -1097,9 +1243,9 @@ def makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[],
     else:
         tEnd = 'full'
 
-    vofs = curdir/f"{galaxy}{dcName}"/f"voronoi_SN{SN:02d}_{tEnd}.xz"
-    VO = au.Load.lzma(vofs)
-    nSpat = VO['xbin'].size
+    bofs = curdir/f"{galaxy}{dcName}"/f"binning_SN{SN:02d}_{tEnd}.xz"
+    PB = au.Load.lzma(bofs)
+    nSpat = PB['xbin'].size
 
     if len(apers) < 1:
         apers = np.arange(nSpat)
@@ -1108,20 +1254,35 @@ def makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[],
 
     if NMP > 1:
         print(f"{'': <8s}Running {NMP:d} processes")
-        with mp.Pool(processes=NMP) as pool:
-            it = pool.imap_unordered(partial(_mpSpecFromSum, galaxy=galaxy,
-                SN=SN, dcName=dcName), apers)
-            for j in tqdm(it, desc='specSum', total=nSpat):
-                pass
+        ctx = mp.get_context('fork')
+        with ctx.Pool(processes=NMP, maxtasksperchild=1) as pool:
+            it = pool.imap_unordered(
+                partial(_run_spec_from_sum, galaxy=galaxy, SN=SN, dcName=dcName,
+                        exe_dir=str(curdir)),
+                apers,
+                chunksize=1,
+            )
+            bad = 0
+            for res in tqdm(it, desc="specSum", total=nSpat):
+                if not res["ok"]:
+                    bad += 1
+                    print(
+                        f"\n[FAIL] {' '.join(map(str, res['cmd']))}\n"
+                        f"  returncode={res['returncode']} signal={res['signal_name']}\n"
+                        f"  hint: {res.get('hint','(see stderr)')}\n"
+                        f"  --- stderr (tail) ---\n{res['stderr']}\n"
+                        f"  --- stdout (tail) ---\n{res['stdout']}\n"
+                    )
     else:
         for aper in tqdm(apers, desc='specSum', total=nSpat):
-            _mpSpecFromSum(aper, galaxy, SN, dcName)
+            _run_spec_from_sum(aper, galaxy=galaxy, SN=SNRing, dcName=dcName,
+                exe_dir=str(curdir))
 
 # ------------------------------------------------------------------------------
 
 def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     pplots=['kin', 'err', 'age', 'metal', 'imf', 'ml', 'abund', 'radial'],
-    band='F814W', contours=False, dcName='', redraw=False, **kwargs):
+    filt='WFPC2.F814W', contours=False, dcName='', redraw=False, **kwargs):
     """_summary_
 
     Args:
@@ -1142,8 +1303,10 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     --------
     am.afh('SNL1', SN=80, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, full=True, dcName='NFMESOouterError', posterior=True)
     am.afh('NGC4365', SN=100, full=True, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, posterior=True)
+    am.afh('NGC3630', SN=100, filt='WFPC2.F814W', vsys=True, FOV=False, full=True, posterior=True)
     """    
 
+    band = filt.split('.')[-1]
     posterior = kwargs.pop('posterior', False)
 
     if not full: # Clip the spectral data if required
@@ -1154,7 +1317,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     mDir = curdir/f"{galaxy}{dcName}"
 
     pifs = mDir/f"pixels_SN{SN:02d}.xz"
-    vofs = mDir/f"voronoi_SN{SN:02d}_{tEnd}.xz"
+    bofs = mDir/f"binning_SN{SN:02d}_{tEnd}.xz"
     sefs = mDir/f"selection_SN{SN:02d}_{tEnd}.xz"
     afs  = mDir/f"AFH_SN{SN:02d}_{tEnd}.pkl"
     dkfs  = curdir.parent/'dynamics'/'MUSEKinematics'/f"{galaxy}_SN{SN:02d}.xz"
@@ -1164,7 +1327,10 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     jfn = dDir/'galaxy-props'/f"{galaxy}.json"
     cfn = mDir/'config.xz'
     xpix, ypix, sele, pixs = au.Load.lzma(pifs)
-    VO = au.Load.lzma(vofs)
+    if bofs.is_file():
+        PB = au.Load.lzma(bofs)
+    else:
+        PB = au.Load.lzma(mDir/f"voronoi_SN{SN:02d}_{tEnd}.xz")
     saur, goods = au.Load.lzma(sefs)
     CFG = au.Load.lzma(cfn)
     interest = ['fit_type', 'imf_type', 'fit_hermite', 'fit_two_ages']
@@ -1174,8 +1340,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     young = bool(int(CFG['fit_two_ages']))
     imft = int(CFG['imf_type'])
 
-    binNum = VO['binNum']
-    nSpat = VO['xbin'].size
+    binNum = PB['binNum']
+    nSpat = PB['xbin'].size
 
     gal = au.Load.lzma(gfs)
     if 'z' in gal.keys():
@@ -1242,11 +1408,11 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         eIdx = ALF['0000'].results['Type'].tolist().index('error')
 
         KIN = dict()
-        KIN['lVal'] = VO['lVal']
-        KIN['lN'] = VO['lN']
-        KIN['lDel'] = VO['lDel']
-        KIN['x'] = VO['xbin']
-        KIN['y'] = VO['ybin']
+        KIN['lVal'] = PB['lVal']
+        KIN['lN'] = PB['lN']
+        KIN['lDel'] = PB['lDel']
+        KIN['x'] = PB['xbin']
+        KIN['y'] = PB['ybin']
         for j in range(4):
             KIN[f"{j+1}"] = np.ma.ones(nSpat)*np.nan
             KIN[f"{j+1}e"] = np.ma.ones(nSpat)*np.nan
@@ -1351,7 +1517,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             MLa = au.getM2L(f"{galaxy}_SN{SN:02d}_{aper:04d}",
                 ALF[f"{aper:04d}"].results['logage'][mIdx], SFH['zH'][aper],
                 SFH['IMF']['1'][aper], SFH['IMF']['2'][aper], 2.3, RZ=RZ,
-                band=band, **kwargs)
+                filt=filt, **kwargs)
             SFH['ML'][band][aper] = MLa
 
         KIN['2'] = np.sqrt(KIN['2']**2 + 100.**2) # add model broadening
@@ -1397,12 +1563,12 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         vSys += _vSys
         gal['vSys'] = vSys
         if angErr:
-            gal['PA'] = 90.+VO['photPA']
+            gal['PA'] = 90.+PB['photPA']
         else: gal['PA'] = 90.-angBest
         PA = gal['PA']
         au.Write.lzma(gfs, gal)
         print(f"{'': <4s}kinPA: {90.-angBest: 4.4} +/- {angErr: 4.4}")
-        print(f"{'': <4s}phtPA: {VO['photPA']: 4.4}")
+        print(f"{'': <4s}phtPA: {PB['photPA']: 4.4}")
         print(f"Systemic velocity determined to be {vSys:4.4f} km s^{{-1}}")
     else:
         if 'vSys' in gal.keys():
@@ -1480,6 +1646,24 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     if imft == 0:
         pKeys = np.delete(pKeys, np.where(pKeys=='IMF2')[0])
     
+    eps = 1e-3
+    IMF1 = SFH['IMF']['1'].astype(np.float64, copy=True)
+    m1 = (IMF1 == 1)
+    if m1.any():
+        IMF1[m1] += (np.random.random(m1.sum()) - 0.5) * eps
+    imin, imax = POT.sigClip(IMF1, 'IMF', clipBins=0.025)
+    IMF2 = SFH['IMF']['2'].astype(np.float64, copy=True)
+    m2 = (IMF2 == 1)
+    if m2.any():
+        IMF2[m2] += (np.random.random(m2.sum()) - 0.5) * eps
+    imfs = [pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.0),
+        slopes=(x1, x2, 2.3)) for (x1, x2) in zip(IMF1, IMF2)]
+    xiTop = np.array(list(map(lambda imf: imf.integrate(
+        mlow=0.2, mhigh=0.5)[0], imfs)))
+    xiBot = np.array(list(map(lambda imf: imf.integrate(
+        mlow=0.2, mhigh=1.0)[0], imfs)))
+    xi = xiTop/xiBot
+    ximin, ximax = POT.sigClip(xi, 'IMF', clipBins=0.025)
 
     if 'kin' in pplots:
         gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)
@@ -1942,7 +2126,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         plt.close('all')
 
 
-        amin, amax = POT.sigClip(SFH['Z'], 'metal', clipBins=0.05)
+        amin, amax = POT.sigClip(SFH['metal'], 'metal', clipBins=0.05)
         gs = gridspec.GridSpec(1, 1, hspace=0.0, wspace=0.0)
         fig = plt.figure(figsize=plt.figaspect(yLen/xLen))
 
@@ -1965,7 +2149,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         # pcB.set_ylabel(pcDec, rotation=270, labelpad=40)
 
         ax = fig.add_subplot(gs[0])
-        img = dpp(xpix, ypix, SFH['Z'][binNum], pixelsize=pixs,
+        img = dpp(xpix, ypix, SFH['metal'][binNum], pixelsize=pixs,
             vmin=amin, vmax=amax, angle=PA, cmap=moncmap)
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
@@ -2016,29 +2200,14 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         plt.close('all')
 
     if 'imf' in pplots:
-        IMF1 = np.ma.masked_equal(SFH['IMF']['1'], 1)
-        im1 = np.ma.getmaskarray(IMF1)
-        IMF1[im1] = IMF1.data[im1] + ((np.random.ranf()-0.5)*1e-3)
-        imin, imax = POT.sigClip(IMF1, 'IMF', clipBins=0.025)
 
         fig = plt.figure(figsize=plt.figaspect(yLen/xLen))
 
         if imft == 1 or imft == 3:
-            IMF2 = np.ma.masked_equal(SFH['IMF']['2'], 1)
-            im2 = np.ma.getmaskarray(IMF2)
-            IMF2[im2] = IMF2.data[im2] + ((np.random.ranf()-0.5)*1e-3)
-            imfs = [pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.0),
-                slopes=(x1, x2, 2.3)) for (x1, x2) in zip(IMF1, IMF2)]
-            xiTop = np.array(list(map(lambda imf: imf.integrate(
-                mlow=0.2, mhigh=0.5)[0], imfs)))
-            xiBot = np.array(list(map(lambda imf: imf.integrate(
-                mlow=0.2, mhigh=1.0)[0], imfs)))
-            xi = xiTop/xiBot
 
             i2min, i2max = POT.sigClip(IMF2, 'IMF', clipBins=0.025)
             imin = np.min((imin, i2min))
             imax = np.max((imax, i2max))
-            amin, amax = POT.sigClip(xi, 'IMF', clipBins=0.025)
             gs = gridspec.GridSpec(2, 2, hspace=0.0, wspace=0.0)
 
             ax = fig.add_subplot(gs[0])
@@ -2108,7 +2277,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             
             ax = fig.add_subplot(gs[2])
             img = dpp(xpix, ypix, xi[binNum], pixelsize=pixs,
-                vmin=amin, vmax=amax, angle=PA, cmap=moncmap)
+                vmin=ximin, vmax=ximax, angle=PA, cmap=moncmap)
             ax.set_xlim(xmin, xmax)
             ax.set_ylim(ymin, ymax)
             ax.add_patch(copy(pPatch))
@@ -2124,8 +2293,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 ax.tricontour(xbix, ybix, flux, colors='k', linewidths=0.3,
                     levels=flevels)
 
-            miText = POT.prec(pren, amin)
-            maText = POT.prec(pren, amax)
+            miText = POT.prec(pren, ximin)
+            maText = POT.prec(pren, ximax)
             cax = POT.attachAxis(ax, 'right', 0.075, mid=True)
             cb = plt.colorbar(img, cax=cax)
             # lT = cax.text(0.5, 0.5, r'$\mathbf{\xi}$', va='center',
@@ -2183,6 +2352,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         fig.savefig(mDir/f"afh_IMF_SN{SN:02d}")
 
 
+        da = []
+        sa = []
         # Histogram the slopes and the uncertainties
         if imft == 1 or imft == 3:
             gs = gridspec.GridSpec(2, 2, hspace=0.0, wspace=0.0)
@@ -2193,19 +2364,21 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         ax = fig.add_subplot(gs[0])
         ax.set_yticks([])
         ax.hist(IMF1, bins=20, histtype='stepfilled', color='k', lw=2)
-        lT = ax.text(1e-2, 1-1e-2, r"$\mathbf{\alpha_1}$"'\n'\
-            rf"$\sigma = {np.std(IMF1):.3f}$", va='top', ha='left',
+        lT = ax.text(1-1e-2, 1-1e-2, r"$\mathbf{\alpha_1}$"'\n'\
+            rf"$\mathbf{{\sigma = {np.std(IMF1):.3f}}}$", va='top', ha='right',
             color=POT.pgreen, transform=ax.transAxes, zorder=200)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
+        da += [ax]
         ax = fig.add_subplot(gs[1])
         ax.set_yticks([])
         ax.hist(SFH['IMF']['1e'], bins=20, histtype='stepfilled', color='k',
             lw=2)
-        lT = ax.text(1e-2, 1-1e-2, r"$\mathbf{\sigma_{\alpha_1}}$", va='top',
-            ha='left', color=POT.pgreen, transform=ax.transAxes, zorder=200)
+        lT = ax.text(1-1e-2, 1-1e-2, r"$\mathbf{\sigma_{\alpha_1}}$", va='top',
+            ha='right', color=POT.pgreen, transform=ax.transAxes, zorder=200)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
+        sa += [ax]
         if imft == 1 or imft == 3:
             ax = fig.add_subplot(gs[2])
             ax.set_yticks([])
@@ -2215,14 +2388,33 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 color=POT.pgreen, transform=ax.transAxes, zorder=200)
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
+            da += [ax]
             ax = fig.add_subplot(gs[3])
             ax.set_yticks([])
             ax.hist(SFH['IMF']['2e'], bins=20, histtype='stepfilled', color='k',
                 lw=2)
-            lT = ax.text(1e-2, 1-1e-2, rf"$\sigma_{{\alpha_2}}$", va='top',
-                ha='left', color=POT.pgreen, transform=ax.transAxes, zorder=200)
+            lT = ax.text(1-1e-2, 1-1e-2, r"$\mathbf{\sigma_{\alpha_2}}$",
+                va='top', ha='right', color=POT.pgreen, transform=ax.transAxes,
+                zorder=200)
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
+            sa += [ax]
+        dxmin, dxmax = [np.min([dax.get_xlim()[0] for dax in da]),
+            np.max([dax.get_xlim()[1] for dax in da])]
+        for dax in da:
+            dax.set_xlim(dxmin, dxmax)
+            dax.tick_params('both', which='major', width=0.75, length=5)
+            # dax.tick_params('both', length=4, which='minor')
+            if not dax.get_subplotspec().is_last_row():
+                dax.set_xticklabels([])
+        sxmin, sxmax = [np.min([sax.get_xlim()[0] for sax in sa]),
+            np.max([sax.get_xlim()[1] for sax in sa])]
+        for sax in sa:
+            sax.set_xlim(sxmin, sxmax)
+            sax.tick_params('both', which='major', width=0.75, length=5)
+            # sax.tick_params('both', length=4, which='minor')
+            if not sax.get_subplotspec().is_last_row():
+                sax.set_xticklabels([])
         fig.savefig(mDir/f"afh_IMFhist_SN{SN:02d}")
 
         plt.close('all')
@@ -2441,13 +2633,13 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                             f"{galaxy}_SN{SN:02d}_{j:04d}",
                             maps['logage'][j, :], maps['zH'][j, :],
                             maps['IMF1'][j, :], maps['IMF1'][j, :],
-                            np.repeat(2.3, nPost), RZ=RZ, band=band, **kwargs)
+                            np.repeat(2.3, nPost), RZ=RZ, filt=filt, **kwargs)
                     else:
                         maps['ML'][j, :] = au.getM2L(
                             f"{galaxy}_SN{SN:02d}_{j:04d}",
                             maps['logage'][j, :], maps['zH'][j, :],
                             maps['IMF1'][j, :], maps['IMF2'][j, :],
-                            np.repeat(2.3, nPost), RZ=RZ, band=band, **kwargs)
+                            np.repeat(2.3, nPost), RZ=RZ, filt=filt, **kwargs)
                     # use these random samples, don't re-sample.
                 au.Write.lzma(posfn, maps)
             else:
@@ -2479,6 +2671,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             nrows += 2
         if np.any([np.mean(SFH['abundances'][key])] for key in aKeys) > 0.6:
             HIGH = True
+        if imft == 1 or imft == 3:
+            nrows += 1
         main = plt.figure(figsize=plt.figaspect(nrows/4.)*1.15)
         gs = gridspec.GridSpec(nrows, 1, hspace=0.0, wspace=0.0)
         axi = 0
@@ -2721,6 +2915,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                     for k in np.arange(nrad)+1])/2.
                 ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
                     amed[amask]-aerr[amask], alpha=0.1, color=col)
+            
             ax.legend(ncols=2)
         ax.set_xlim(right=medBins[idx.max()])
         # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')
@@ -2736,6 +2931,66 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         ax.set_xticklabels([])
         kpAx.set_xticklabels([])
         axi += 1
+
+        if imft == 1 or imft == 3:
+            ax = main.add_subplot(gs[axi])
+            ai += 1
+            mkr = symbs[ai]
+            col = colos[ai]
+            amed = np.array([np.ma.median(xi[rore][idx==k])
+                for k in np.arange(nrad)+1])
+            amed = np.ma.masked_invalid(amed)
+            amask = ~np.ma.getmaskarray(amed)
+            if posterior:
+                ax.plot(pBins[amask], amed[amask], lw=1.0, c=col, zorder=10)
+                ax.plot(pBins[amask], amed[amask], lw=2.0, c='k', zorder=2)
+                ax.scatter(pBins[amask], amed[amask], marker=mkr, c=col,
+                    label=r'$\xi$', linewidth=0.5, edgecolors='k', s=70,
+                    zorder=50)
+                eps = 1e-3
+                a1 = maps['IMF1'].astype(np.float64, copy=True)
+                m1 = (a1 == 1)
+                if m1.any():
+                    a1[m1] += (np.random.random(m1.sum()) - 0.5) * eps
+                a2 = maps['IMF2'].astype(np.float64, copy=True)
+                m2 = (a2 == 1)
+                if m2.any():
+                    a2[m2] += (np.random.random(m2.sum()) - 0.5) * eps
+                for jp in tqdm(range(nPost), desc=u'ξ chains', total=nPost):
+                    imfs = [pieceIMF(massCuts=(0.08, 0.5, 1.0, 100.0),
+                        slopes=(x1, x2, 2.3)) for x1, x2 in zip(
+                            a1[:, jp], a2[:, jp])]
+                    xii = np.array(list(map(lambda imf: imf.integrate(
+                        mlow=0.2, mhigh=0.5)[0], imfs))) / np.array(list(map(
+                        lambda imf: imf.integrate(
+                            mlow=0.2, mhigh=1.0)[0], imfs)))
+                    pamed = np.array([np.ma.median(xii[rore][idx==k])
+                        for k in np.arange(nrad)+1])
+                    pamed = np.ma.masked_invalid(pamed)
+                    ax.plot(pBins[amask], pamed[amask], alpha=0.1, lw=0.2,
+                        c=col, zorder=0)
+            else:
+                ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
+                    marker=mkr, mfc=col, label=r'$\alpha_2$', mew=0.75, mec='k',
+                    ecolor=col, ms=12, zorder=50)
+                aerr = np.array([np.ma.std(xi[rore][idx==k])
+                    for k in np.arange(nrad)+1])/2.
+                ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
+                    amed[amask]-aerr[amask], alpha=0.1, color=col)
+            ax.set_xlim(right=medBins[idx.max()])
+            # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')
+            ax.set_ylabel(r'$\xi$')
+            kpAx = ax.twiny()
+            # kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *
+            kpAx.set_xlim(np.array(ax.get_xlim()) * RZ.getPC() *
+                1e-3)
+            # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")
+            kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,
+                top=True)
+            kpAx.xaxis.set_label_position('top')
+            ax.set_xticklabels([])
+            kpAx.set_xticklabels([])
+            axi += 1
         
         ax = main.add_subplot(gs[axi])
         ai += 1
@@ -2789,10 +3044,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
 # ------------------------------------------------------------------------------
 
 def showPlots(galaxy, apers, SN=100, clabels=None, pplots=['spec', 'corn'],
-              dcName=''):
-    frame = incf()
-    funcArgs, _, _, funcValues = ingav(frame)
-    pplots = funcValues['pplots']
+    dcName=''):
 
     mDir = curdir/f"{galaxy}{dcName}"
     cfn = mDir/'config.xz'
@@ -2965,22 +3217,18 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
         tEnd = 'full'
     kfs = curdir/galaxy/f"kinematics_SN{SN:02d}.xz"
     pifs = curdir/galaxy/f"pixels_SN{SN:d}.xz"
-    vofs = curdir/galaxy/f"voronoi_SN{SN:02d}_{tEnd}.xz"
+    bofs = curdir/galaxy/f"binning_SN{SN:02d}_{tEnd}.xz"
     sefs = curdir/galaxy/f"selection_SN{SN:02d}_{tEnd}.xz"
     bfn = kfs.name
     basefn = kfs.stem
     baseName = curdir/galaxy/'mpData'/basefn/('{:07d}_'+f"{basefn}.jl")
 
-    frame = incf()
-    funcArgs, _, _, funcValues = ingav(frame)
-    pplots = funcValues['pplots']
-
-    VB = au.Load.lzma(vofs)
+    PB = au.Load.lzma(bofs)
     try:
-        cubeFlux = VB['binFlux']/VB['binCounts']
+        cubeFlux = PB['binFlux']/PB['binCounts']
     except KeyError:
-        binSpec = VB['binSpec']
-        nPixels = VB['nPixels']
+        binSpec = PB['binSpec']
+        nPixels = PB['nPixels']
         cubeFlux = np.ma.sum(binSpec, axis=0)/nPixels
         del binSpec, nPixels
 
@@ -2991,15 +3239,15 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
         pwn = mask[binNum]  # from bins to pixels
         bads = np.unique(binNum[~pwn])
         print(bads)
-        xbin = VB['xbin']
-        ybin = VB['ybin']
-        xbar = VB['xbar']
-        ybar = VB['ybar']
-        scale = VB['scale']
-        endSN = VB['endSN']
-        binStat = VB['binStat']
-        tLPix = np.arange(VB['lVal'], VB['lVal'] +
-                          (VB['lN']*VB['lDel']), VB['lDel'])
+        xbin = PB['xbin']
+        ybin = PB['ybin']
+        xbar = PB['xbar']
+        ybar = PB['ybar']
+        scale = PB['scale']
+        endSN = PB['endSN']
+        binStat = PB['binStat']
+        tLPix = np.arange(PB['lVal'], PB['lVal'] +
+                          (PB['lN']*PB['lDel']), PB['lDel'])
         for jk in bads:
             spp = au.Load.jobl(baseName.format(jk))
             spectrum = binSpec[:, jk]
@@ -3037,7 +3285,7 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
         plt.close('all')
         vSys += _vSys
         if angErr > 10.0:
-            angBest = VB['photPA']
+            angBest = PB['photPA']
             vSys = _vSys
         gal['vSys'] = vSys
         gal['PA'] = 90.-angBest

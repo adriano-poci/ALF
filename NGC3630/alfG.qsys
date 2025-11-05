@@ -1,0 +1,36 @@
+#!/usr/bin/bash -l
+set -euo pipefail
+
+WORKDIR="/mnt/extraspace/poci/alf/NGC3630"
+GROUP="alf_NGC3630_SN100"
+QUEUE="cmb"
+LAYOUT="1x21"
+MEM_GB=2.5
+START=0
+END=3395
+
+ADDQ=$(command -v addqueue) || { echo "❌ addqueue not found in PATH" >&2; exit 127; }
+
+for ((i=START; i<=END; ++i)); do
+  idx4=$(printf "%04d" "$i")
+  name="${GROUP}_${idx4}"
+  log="${WORKDIR}/${name}-%j.out"
+
+  node_cmd="module purge; \
+module load gcc/13.2; \
+module load openmpi; \
+module load python/3.11.4; \
+export ALF_HOME=/mnt/extraspace/poci/alf/; \
+export PSM2_CUDA=0; \
+export PMIX_MCA_gds=hash; \
+cd ${ALF_HOME}; \
+mpirun --bind-to core --map-by core ./NGC3630/bin/alf.exe NGC3630_SN100_${idx4}"
+
+  cmd=( "$ADDQ" --sbatch -s \
+        -q "$QUEUE" -n "$LAYOUT" -m "$MEM_GB" \
+        -g "$GROUP" -c "$name" -o "$log" \
+        /usr/bin/bash -lc "$node_cmd" )
+
+  printf 'Submitting:' >&2; printf ' %q' "${cmd[@]}"; printf '\n' >&2
+  "${cmd[@]}"
+done

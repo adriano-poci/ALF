@@ -50,6 +50,7 @@ v1.16:  Allow to not use Slurm arrays if preferred. 1 May 2024
 v1.17:  Added `SolarAbundance` and `SumMetals` to get total metallicity from
             individual abundances. 7 June 2025
 v1.18:  Cleaned out unecessary functions. 26 July 2025
+v1.19:  Replaced `photFilt` and `band` with `filt` kwarg. 22 October 2025
 """
 from __future__ import print_function, division
 
@@ -128,17 +129,17 @@ def prepSpec(galaxy, SN, instrument='MUSE', wRange=[4000, 10000], full=True,
     
     gDir = curdir/f"{galaxy}{dcName}"
 
-    VO = Load.lzma(gDir/f"voronoi_SN{SN:02d}_{tEnd}.xz")
-    tPix = VO['lVal']+np.arange(VO['lN'])*VO['lDel']
-    wRange = np.clip(wRange, VO['lVal'], np.max(tPix))
+    PB = Load.lzma(gDir/f"binning_SN{SN:02d}_{tEnd}.xz")
+    tPix = PB['lVal']+np.arange(PB['lN'])*PB['lDel']
+    wRange = np.clip(wRange, PB['lVal'], np.max(tPix))
     # wRange = np.insert(wRange, 1,
         # [x for xs in smask for x in xs]).reshape(-1, 2)
     dWave, dLSF = np.loadtxt(dDir/f"{instrument.upper()}.lsf", unpack=True)
     dLSFFunc = interp1d(dWave, dLSF, 'linear', fill_value='extrapolate')
     museLSF = dLSFFunc(tPix)
 
-    binSpec = np.ma.masked_invalid(VO['binSpec'])
-    binStat = np.ma.masked_invalid(VO['binStat'])
+    binSpec = np.ma.masked_invalid(PB['binSpec'])
+    binStat = np.ma.masked_invalid(PB['binStat'])
 
     velRes = CTS.c/(tPix/museLSF) # lambda/DeltaLambda = c/DeltaVel = R
 
@@ -167,7 +168,7 @@ def prepSpec(galaxy, SN, instrument='MUSE', wRange=[4000, 10000], full=True,
             header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")
     else:
         np.savetxt(curdir/'indata'/f"{galaxy}_SN{SN:02d}_aperture.dat",
-            np.column_stack((tPix, VO['aperSpec'], VO['aperStat'],
+            np.column_stack((tPix, PB['aperSpec'], PB['aperStat'],
             weights, velRes)), fmt='%20.10f',
             header=f"{wRange[0]*1e-4:.5f} {wRange[1]*1e-4:.5f}")
 
@@ -184,12 +185,12 @@ def readSpec(afn):
 # ------------------------------------------------------------------------------
 
 def alfWrite(galaxy, SN, nbins, RZ, hours=48, priors=True, dcName='',
-    qProps=dict(timeMax=168, module=[], array=True)):
+    qProps=dict(timeMax=168, module=[], sarray=True), qsys='slurm'):
 
     gDir = curdir/f"{galaxy}{dcName}"
 
     hours = np.ceil(hours).astype(int)
-    hours = np.min((hours, qProps['timeMax']))
+    hours = np.min((hours, qProps.get('timeMax', 168))).astype(int)
     nCPU = int(qProps.pop('NCPU', 16))
     sarray = qProps.pop('sarray', True)
     if hours >= 24:
@@ -213,7 +214,7 @@ def alfWrite(galaxy, SN, nbins, RZ, hours=48, priors=True, dcName='',
     ws = '' # whitespace
     nl = r'\n' # newline
 
-    if sarray:
+    if sarray and 'slurm' in qsys: # arrayed Slurm jobs
         for ss in range(nScripts):
 
             add = nSteps*ss
@@ -223,11 +224,11 @@ def alfWrite(galaxy, SN, nbins, RZ, hours=48, priors=True, dcName='',
             remain -= nSteps
 
             sStr = ''
-            sStr += u'#!/bin/bash -l\n'
+            sStr += u'#!/usr/bin/bash -l\n'
             if 'owner' in qProps.keys():
                 sStr += f"#SBATCH -A {str(qProps['owner'])}\n"
             if 'queue' in qProps.keys():
-                sStr += f"#SBATCH -p {str(qProps['queue'])}\n"
+                sStr += f"#SBATCH -p {qProps.get('queue', 'normal')}\n"
             sStr += f'#SBATCH --job-name="alf_{galaxy}_SN{SN:02d}"\n'
             sStr += f'#SBATCH -D "{str(gDir)}"\n'
             sStr += f"#SBATCH --time={timeStr}\n"
@@ -247,8 +248,9 @@ def alfWrite(galaxy, SN, nbins, RZ, hours=48, priors=True, dcName='',
             sStr += u'module purge\n'
             for mod in qProps['module']:
                 sStr += f"module load {'/'.join(mod)}\n"
-            sStr += f'export ALF_HOME={curdir}{plp.os.sep}\n'
-            sStr += f'export PSM2_CUDA=0\n\n'
+            sStr += f'export ALF_HOME={curdir}{os.sep}\n'
+            sStr += f'export PSM2_CUDA=0\n'
+            sStr += f'export PMIX_MCA_gds=hash\n\n'
             sStr += u'cd ${ALF_HOME}\n'
             if add > 0:
                 sStr += u'declare idx=$(printf %04d '\
@@ -264,13 +266,14 @@ def alfWrite(galaxy, SN, nbins, RZ, hours=48, priors=True, dcName='',
             sf.write(sStr)
             sf.flush()
             sf.close()
-    else:
+            (gDir/f"alf{ss:02d}.qsys").chmod(0o755)
+    elif 'slurm' in qsys: # non-arrayed Slurm jobs
         sStr = ''
-        sStr += u'#!/bin/bash -l\n'
+        sStr += u'#!/usr/bin/bash -l\n'
         if 'owner' in qProps.keys():
             sStr += f"#SBATCH -A {str(qProps['owner'])}\n"
         if 'queue' in qProps.keys():
-            sStr += f"#SBATCH -p {str(qProps['queue'])}\n"
+            sStr += f"#SBATCH -p {qProps.get('queue', 'normal')}\n"
         # sStr += f'#SBATCH --job-name="alf_{galaxy}_SN{SN:02d}"\n'
         sStr += f'#SBATCH -D "{str(gDir)}"\n'
         sStr += f"#SBATCH --time={timeStr}\n"
@@ -287,8 +290,9 @@ def alfWrite(galaxy, SN, nbins, RZ, hours=48, priors=True, dcName='',
         sStr += u'source ${HOME}/.bashrc\n\n'
         for mod in qProps['module']:
             sStr += f"module load {'/'.join(mod)}\n"
-        sStr += f'export ALF_HOME={curdir}{plp.os.sep}\n'
-        sStr += f'export PSM2_CUDA=0\n\n'
+        sStr += f'export ALF_HOME={curdir}{os.sep}\n'
+        sStr += f'export PSM2_CUDA=0\n'
+        sStr += f'export PMIX_MCA_gds=hash\n\n'
         sStr += u'cd ${ALF_HOME}\n'
         sStr += u'while getopts ":d:" arg; do\n'
         sStr += f'{ws: <4s}case $arg in\n'
@@ -304,14 +308,69 @@ def alfWrite(galaxy, SN, nbins, RZ, hours=48, priors=True, dcName='',
         sf.write(sStr)
         sf.flush()
         sf.close()
+        (gDir/'alfS.qsys').chmod(0o755)
+    elif 'glamdring' in qsys:  # non-arrayed glamdring jobs (array emulation via addqueue)
+        sStr = ''
+        sStr += '#!/usr/bin/bash -l\n'
+        sStr += 'set -euo pipefail\n\n'
+
+        # ----- config from Python -----
+        sStr += f'WORKDIR="{str(gDir)}"\n'
+        sStr += f'GROUP="alf_{galaxy}_SN{SN:02d}"\n'
+        sStr += f'QUEUE="{qProps.get("queue", "normal")}"\n'
+        sStr += f'LAYOUT="1x{nCPU:d}"\n'
+        sStr += f'MEM_GB={qProps.get("mem_gb", 2.5)}\n'
+        sStr += 'START=0\n'
+        sStr += f'END={nbins-1}\n\n'
+
+        # resolve addqueue once
+        sStr += 'ADDQ=$(command -v addqueue) || { echo "❌ addqueue not found in PATH" >&2; exit 127; }\n\n'
+
+        # submit loop
+        sStr += 'for ((i=START; i<=END; ++i)); do\n'
+        sStr += '  idx4=$(printf "%04d" "$i")\n'
+        sStr += '  name="${GROUP}_${idx4}"\n'
+        sStr += '  log="${WORKDIR}/${name}-%j.out"\n\n'
+
+        # build a literal node command; nothing to pass via env/args
+        sStr += '  node_cmd="module purge; \\\n'
+        # modules from qProps['module']
+        for mod in qProps.get('module', []):
+            if isinstance(mod, (list, tuple)):
+                modname = mod[0]
+                modver = (mod[1] if len(mod) > 1 else None)
+                modstr = f'{modname}/{modver}' if modver else modname
+            else:
+                modstr = str(mod)
+            sStr += f'module load {modstr}; \\\n'
+        sStr += f'export ALF_HOME={curdir}{os.sep}; \\\n'
+        sStr += 'export PSM2_CUDA=0; \\\n'
+        sStr += 'export PMIX_MCA_gds=hash; \\\n'
+        sStr += 'cd ${ALF_HOME}; \\\n'
+        sStr += f'mpirun --bind-to core --map-by core ./{galaxy}{dcName}/bin/alf.exe {galaxy}_SN{SN:02d}_${{idx4}}"\n\n'
+
+        # addqueue invocation (one per index)
+        sStr += '  cmd=( "$ADDQ" --sbatch -s -r \\\n'
+        sStr += '        -q "$QUEUE" -n "$LAYOUT" -m "$MEM_GB" \\\n'
+        sStr += '        -g "$GROUP" -c "$name" -o "$log" \\\n'
+        sStr += '        /usr/bin/bash -lc "$node_cmd" )\n\n'
+        sStr += '  printf \'Submitting:\' >&2; printf \' %q\' "${cmd[@]}"; printf \'\\n\' >&2\n'
+        sStr += '  "${cmd[@]}"\n'
+        sStr += 'done\n'
+
+        sf = io.open(gDir / 'alfG.qsys', 'w+', newline='')
+        sf.write(sStr)
+        sf.flush()
+        sf.close()
+        (gDir / 'alfG.qsys').chmod(0o755)
 
     sStr = ''
-    sStr += u'#!/bin/bash -l\n'
+    sStr += u'#!/usr/bin/bash -l\n'
 
     if 'owner' in qProps.keys():
         sStr += f"#SBATCH -A {str(qProps['owner'])}\n"
     if 'queue' in qProps.keys():
-        sStr += f"#SBATCH -p {str(qProps['queue'])}\n"
+        sStr += f"#SBATCH -p {qProps.get('queue', 'normal')}\n"
     sStr += f'#SBATCH --job-name="alf_{galaxy}_SN{SN:02d}_aperture"\n'
     sStr += f'#SBATCH -D "{str(gDir)}"\n'
     sStr += f"#SBATCH --time={timeStr}\n"
@@ -327,11 +386,13 @@ def alfWrite(galaxy, SN, nbins, RZ, hours=48, priors=True, dcName='',
     sStr += f'#SBATCH --open-mode=append\n\n'
 
     sStr += u'source ${HOME}/.bashrc\n\n'
+    sStr += u'module purge\n'
     for mod in qProps['module']:
         sStr += f"module load {'/'.join(mod)}\n"
 
-    sStr += f'export ALF_HOME={curdir}{plp.os.sep}\n'
-    sStr += f'export PSM2_CUDA=0\n\n'
+    sStr += f'export ALF_HOME={curdir}{os.sep}\n'
+    sStr += f'export PSM2_CUDA=0\n'
+    sStr += f'export PMIX_MCA_gds=hash\n\n'
     sStr += u'### Compile clean version of `alf`\n'
     sStr += u'cd ${ALF_HOME}src\n'
     sStr += u'cp alf.perm.f90 alf.f90\n'
@@ -402,21 +463,35 @@ def alfWrite(galaxy, SN, nbins, RZ, hours=48, priors=True, dcName='',
     sStr += u'# Move executables to local directory\n'
     sStr += u'cd ${ALF_HOME}\n'
     sStr += f"cp bin/* {galaxy}{dcName}/bin/\n"
-    if sarray:
-        sStr += f'find "{galaxy}{dcName}" -name "alf*.qsys" -type f -exec '\
-        r'sbatch {} \;\n'
-    else:
-        sStr += f"NBIN={nbins}\n"
-        sStr += u'for ((ix=0;ix<=NBIN;ix++)); do\n'
-        sStr += f'{ws: <4s}sbatch '\
-            f'--job-name="alf_{galaxy}_SN{SN:02d}_${{ix}}_{dcName}"'\
-            f" {galaxy}{dcName}/alfS.qsys -d ${{ix}}\n"
-        sStr += u'done\n'
+    if 'slurm' in qsys: # automatically queue indivudal bin jobs
+        if sarray:
+            sStr += f'find "{galaxy}{dcName}" -name "alf*.qsys" -type f -exec '\
+            r'sbatch {} \;\n'
+        else:
+            sStr += f"NBIN={nbins}\n"
+            sStr += u'for ((ix=0;ix<=NBIN;ix++)); do\n'
+            sStr += f'{ws: <4s}sbatch '\
+                f'--job-name="alf_{galaxy}_SN{SN:02d}_${{ix}}_{dcName}"'\
+                f" {galaxy}{dcName}/alfS.qsys -d ${{ix}}\n"
+            sStr += u'done\n'
+    elif 'glamdring' in qsys:
+        args = f"-s -r -q {qProps.get('queue', 'normal')} -m 2.5 -n {nCPU:d}"
+        gStr = u''
+        gStr += u'#!/usr/bin/bash -l\n'
+        gStr += f"addqueue {args} -c alf_{galaxy}_SN{SN:02d}_aperture "\
+            f"{gDir}/startAlf.qsys\n\n"
+        sf = io.open(gDir/'glamStart.qsys', 'w+', newline='')
+        sf.write(gStr)
+        sf.flush()
+        sf.close()
+        (gDir/'glamStart.qsys').chmod(0o755)
+        sStr += f"/usr/bin/bash -lc {gDir}/alfG.qsys\n"
 
     sf = io.open(gDir/'startAlf.qsys', 'w+', newline='')
     sf.write(sStr)
     sf.flush()
     sf.close()
+    (gDir/'startAlf.qsys').chmod(0o755)
 
     sStr = ''
     sStr += u"/'cz out of prior bounds, setting to 0.0'/ {\n"
@@ -544,8 +619,8 @@ def getMass(mto, imf1, imf2, imfTop, **kwargs):
 
 # ------------------------------------------------------------------------------
 
-def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',
-        photFilt='WFPC2.F814W', **kwargs):
+def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, filt='WFPC2.F814W',
+    **kwargs):
     
     logage, zh, imf1, imf2, imfTop = map(np.atleast_1d, [logage, zh, imf1, imf2,
         imfTop])
@@ -572,7 +647,7 @@ def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',
 
     mass = getMass(mto, imf1, imf2, imfTop, **kwargs)
 
-    filter = svo.Filter(photFilt)
+    filter = svo.Filter(filt)
     fWave = filter.wave.to('angstrom').value.flatten()
     fTrans = filter.throughput.flatten()
     # Up-sample filter response
@@ -589,7 +664,7 @@ def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',
     physSpec = baseTemplate * lsun/1e6 * nfWave**2/clight/1e8/4./np.pi/\
         pc2cm**2
 
-    tempMag, _, _ = RZ.shiftFnu(nfWave, physSpec, photFilt=photFilt, **kwargs)
+    tempMag, _, _ = RZ.shiftFnu(nfWave, physSpec, filt=filt, **kwargs)
 
     if tempMag <= 0.0:
         return np.full_like(0.0, imf1)
@@ -598,7 +673,7 @@ def getM2L(mfn, logage, zh, imf1, imf2, imfTop, RZ=None, band='F814W',
         # Read in solar spectrum and generate mag sun from filter curve
         swave, snu = map(lambda x: x.value, Read.SolarSpec(dDir/\
             'sun_reference_stis_002.fits'))
-        solarMag, _, _ = RZ.shiftFnu(swave, snu, photFilt=photFilt, **kwargs)
+        solarMag, _, _ = RZ.shiftFnu(swave, snu, filt=filt, **kwargs)
 
         mass2light = mass / 10.0**(2./5. * (solarMag-tempMag))
 
@@ -1406,9 +1481,9 @@ def checkResults(galaxy, SN=100, full=True, dcName=''):
         tEnd = 'full'
     
     mDir = curdir/f"{galaxy}{dcName}"
-    vofs = mDir/f"voronoi_SN{SN:02d}_{tEnd}.xz"
-    VO = Load.lzma(vofs)
-    nSpat = VO['xbin'].size
+    bofs = mDir/f"binning_SN{SN:02d}_{tEnd}.xz"
+    PB = Load.lzma(bofs)
+    nSpat = PB['xbin'].size
     outs = np.sort([xi for xi in plp.Path(curdir/'results').glob(
         f"{galaxy}_SN{SN:02d}_*.mcmc")])[:nSpat] # omit 'aperture'
     miss = []

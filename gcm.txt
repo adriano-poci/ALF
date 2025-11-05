@@ -1,0 +1,17 @@
+* Plot a nicer corner plot in `Alf`
+* Explicitly pass consistent value of `fgFrac` to all `find_galaxy` calls in `alf_MUSE`
+* Pass `RZ` to `alf_MUSE.alfWrite` to set initial guess of the systemic velocity
+* Return `alf` object from `alf_MUSE.showPlots` for further analysis
+* Generate custom corner plot with `corner` in `alf_MUSE.showPlots`
+* Fixed bug where `imft` was being converted to `bool` and therefore loosing its integer value in `alf_MUSE`
+* Standardised colourmaps for diverging and monotonic maps in `alf_MUSE`
+* Allow reading in incomplete ALF runs in `alf_MUSE.afh`
+* Use `corrected` individual abundances in `alf_MUSE`
+* Compute and plot the total metallicity `[Z/H]` in `alf_MUSE`
+* Read `NCPU` from `qProps` in `alf_utils`
+* Use `RZ` in `alfWrite` to set initial guess of the systemic velocity `alf_utils`
+* Make `alf*.qsys` write to array-aware output and error files in `alf_utils`
+* Added `checkResults` to ensure every spectrum has been fit, and enable re-fitting if needed in `alf_utils`
+* Correctly implemented MPI functionality in sbatch scripts in `alf_utils`
+* Allow to not use Slurm arrays if preferred in `alf_utils`
+* Added `SolarAbundance` and `SumMetals` to get total metallicity from individual abundances in `alf_utils`

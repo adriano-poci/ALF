@@ -1,0 +1,44 @@
+
+****readme for alf input files****
+
+1. atlas_rfn_v3.tar.gz
+
+This is a tarball of files containing the element response functions
+for a Kroupa IMF, sigma=100 km/s, and one age/metallicity combination
+per file (as indicated in the file name; age in Gyr, metallicity as
+[Z/H]).  Units of the spectra are f_nu.
+
+Within each file, the columns are: wavelength (vacuum Angstroms),
+followed by the solar-scaled SSP, and then each element enhancement.
+In each case the element is increased (+) or decreased (-) by 0.3 dex,
+except for Carbon which is increased/decreased by 0.15 dex.
+
+Special cases include:
+
+"as" = O,Ne,S
+"T+" = Teff+50
+"T-" = Teff-50
+
+atlas_rfn_v3.1.tar.gz was added Jun, 2021 after a bug in several of
+the stellar spectral models was identified.  Response functions
+affected were p00_t13_N-0.3, p00_t03_Mg-0.3, p00_t03_Mg+0.3.  The
+effect was mostly confined to the NIR.
+
+2. vcj_ssp.tar.gz
+
+These are empirical SSPs based on the MILES+IRTF spectral library
+described in Villaume et al. (2017).  Each file corresponds to a
+particular age and metallicity, smoothed to sigma=100 km/s.  Within
+each file are models built with a grid of two part power-law IMFs,
+with a fixed cutoff of 0.08.  The IMF form is a power-law (x1) from
+0.08-0.5, a second power-law (x2) from 0.5-1.0, and a Salpeter slope
+above 1 Msun.  Each row contains first the wavelength (vacuum
+Angstroms), followed by the 16x16 SSPs with slopes defined by:
+
+nimf = 16
+imfx = 0.5 + findgen(nimf)/5.0
+where “findgen(N)” cycles from 0 to N-1
+
+x2 cycles first, followed by x1.
+
+
