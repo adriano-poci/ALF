@@ -40,6 +40,6 @@ import alf_MUSE as am
 # am.afh('NGC4365', SN=100, full=True, NMP=16, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False)
 # am.makeSpecFromSum('SNL1', SN=80, full=True, NMP=16, dcName='NFMESOouterError')
 # am.afh('SNL1', SN=80, NMP=16, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, full=True, dcName='NFMESOouterError', posterior=True)
-am.makeSpecFromSum('NGC3630', SN=100, full=True, NMP=64,)
-am.afh('NGC3630', SN=100, NMP=64, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, full=True, posterior=True)
+am.makeSpecFromSum('NGC3630', SN=120, full=True, NMP=64,)
+am.afh('NGC3630', SN=120, NMP=64, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, full=True, posterior=True)
 

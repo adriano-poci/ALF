@@ -1106,7 +1106,7 @@ def aap(galaxy='NGC5102', kPath=(dDir/'MUSECubes'), sin=True, targetSN=60,
 def _tail(s: str, n: int = 4000) -> str:
     return s[-n:] if s and len(s) > n else (s or "")
 
-def _run_spec_from_sum(aper: int, *, galaxy: str, SN: int, dcName: str,
+def _run_spec_from_sum(aper: int | str, *, galaxy: str, SN: int, dcName: str,
                        exe_dir: str = ".") -> dict:
     """
     Run spec_from_sum.exe on a single target and capture diagnostics.
@@ -1236,12 +1236,14 @@ def _mpSpecFromSum(aper, galaxy, SN, dcName=''):
 
 # ------------------------------------------------------------------------------
 
-def makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[],
+def makeSpecFromSum(galaxy: str, SN: int = 100, full=True, NMP=1, apers=[],
     dcName=''):
     if not full: # Clip the spectral data if required
         tEnd = 'trunc'
     else:
         tEnd = 'full'
+
+    SN = int(SN)
 
     bofs = curdir/f"{galaxy}{dcName}"/f"binning_SN{SN:02d}_{tEnd}.xz"
     PB = au.Load.lzma(bofs)
@@ -1275,7 +1277,7 @@ def makeSpecFromSum(galaxy='NGC3115', SN=100, full=True, NMP=1, apers=[],
                     )
     else:
         for aper in tqdm(apers, desc='specSum', total=nSpat):
-            _run_spec_from_sum(aper, galaxy=galaxy, SN=SNRing, dcName=dcName,
+            _run_spec_from_sum(aper, galaxy=galaxy, SN=SN, dcName=dcName,
                 exe_dir=str(curdir))
 
 # ------------------------------------------------------------------------------
