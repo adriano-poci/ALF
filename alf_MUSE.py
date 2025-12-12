@@ -80,6 +80,10 @@ v1.19:  Compute and plot the total metallicity `[Z/H]`. 7 June 2025
 v1.20:  Converted to `PowerBin` for binning scheme. 15 October 2025
 v1.21:  Replaced `photFilt` and `band` with `filt` kwarg. 22 October 2025
 v1.22:  Introduced toggle between binning algorithms. 23 October 2025
+v1.23:  Skip M/L calculation is `.bestspec2` file is missing;
+        Removed superfluous probes of `outs` in `afh`. 11 December 2025
+v1.24:  Glob `.sum` instead of `.mcmc` in `afh`, since these are the end product.
+            12 December 2025
 """
 from __future__ import print_function, division
 
@@ -1358,7 +1362,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
 
     print(f"Looking for \n{kfs} and \n{sffs}...")
     outs = np.sort([plp.Path(curdir/'results'/\
-        f"{galaxy}_SN{SN:02d}_{xi:04d}.mcmc") for xi in range(nSpat)])
+        f"{galaxy}_SN{SN:02d}_{xi:04d}.sum") for xi in range(nSpat)])
     # iterate over every potential aperture and check for existence individually
     if (not kfs.is_file()) or (not sffs.is_file()) or redraw:
         print(f"Looking for {afs}...")
@@ -1516,11 +1520,14 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             #     ALF[f"{aper:04d}"].results['logage'][mIdx], SFH['zH'][aper],
             #     SFH['IMF']['1'][aper], SFH['IMF']['2'][aper], 2.3, RZ=RZ,
             #     band=band, **kwargs)
-            MLa = au.getM2L(f"{galaxy}_SN{SN:02d}_{aper:04d}",
-                ALF[f"{aper:04d}"].results['logage'][mIdx], SFH['zH'][aper],
-                SFH['IMF']['1'][aper], SFH['IMF']['2'][aper], 2.3, RZ=RZ,
-                filt=filt, **kwargs)
-            SFH['ML'][band][aper] = MLa
+            bs2 = plp.Path(curdir/'results'/\
+                f"{galaxy}_SN{SN:02d}_{aper:04d}.bestspec2")
+            if bs2.is_file():
+                MLa = au.getM2L(f"{galaxy}_SN{SN:02d}_{aper:04d}",
+                    ALF[f"{aper:04d}"].results['logage'][mIdx], SFH['zH'][aper],
+                    SFH['IMF']['1'][aper], SFH['IMF']['2'][aper], 2.3, RZ=RZ,
+                    filt=filt, **kwargs)
+                SFH['ML'][band][aper] = MLa
 
         KIN['2'] = np.sqrt(KIN['2']**2 + 100.**2) # add model broadening
         au.Write.lzma(kfs, KIN)
@@ -1641,8 +1648,6 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     pc = RZ.getPC()
     akpc = pc * 1e-3
 
-    outs = np.sort([xi for xi in plp.Path(curdir/'results').glob(
-        f"{galaxy}_SN{SN:02d}_*.mcmc")])[:nSpat] # omit 'aperture'
     pKeys = np.unique(np.append(aKeys, ['logage', 'FeH', 'IMF1',
         'IMF2', 'zH']))
     if imft == 0:
@@ -2599,8 +2604,6 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             posfn = mDir/f"afh_elements_posteriors_SN{SN:02d}.xz"
             nPost = 500
             if not posfn.is_file():
-                outs = np.sort([xi for xi in plp.Path(curdir/'results').glob(
-                    f"{galaxy}_SN{SN:02d}_*.mcmc")])[:nSpat] # omit 'aperture'
                 pKeys = np.unique(np.append(aKeys, ['logage', 'FeH', 'IMF1',
                     'IMF2', 'zH']))
                 if imft == 0:
@@ -2630,18 +2633,21 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                     #     np.random.choice(alf.mcmc[:, alfFP.index('IMF2')],
                     #         nPost, replace=False),
                     #     np.repeat(2.3, nPost), RZ=RZ, band=band, **kwargs)
-                    if imft == 0:
-                        maps['ML'][j, :] = au.getM2L(
-                            f"{galaxy}_SN{SN:02d}_{j:04d}",
-                            maps['logage'][j, :], maps['zH'][j, :],
-                            maps['IMF1'][j, :], maps['IMF1'][j, :],
-                            np.repeat(2.3, nPost), RZ=RZ, filt=filt, **kwargs)
-                    else:
-                        maps['ML'][j, :] = au.getM2L(
-                            f"{galaxy}_SN{SN:02d}_{j:04d}",
-                            maps['logage'][j, :], maps['zH'][j, :],
-                            maps['IMF1'][j, :], maps['IMF2'][j, :],
-                            np.repeat(2.3, nPost), RZ=RZ, filt=filt, **kwargs)
+                    if out.with_suffix('.bestspec2').is_file():
+                        if imft == 0:
+                            maps['ML'][j, :] = au.getM2L(
+                                f"{galaxy}_SN{SN:02d}_{j:04d}",
+                                maps['logage'][j, :], maps['zH'][j, :],
+                                maps['IMF1'][j, :], maps['IMF1'][j, :],
+                                np.repeat(2.3, nPost), RZ=RZ, filt=filt,
+                                    **kwargs)
+                        else:
+                            maps['ML'][j, :] = au.getM2L(
+                                f"{galaxy}_SN{SN:02d}_{j:04d}",
+                                maps['logage'][j, :], maps['zH'][j, :],
+                                maps['IMF1'][j, :], maps['IMF2'][j, :],
+                                np.repeat(2.3, nPost), RZ=RZ, filt=filt,
+                                    **kwargs)
                     # use these random samples, don't re-sample.
                 au.Write.lzma(posfn, maps)
             else:

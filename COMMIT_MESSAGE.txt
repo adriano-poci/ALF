@@ -1,0 +1,2 @@
+* Removed superfluous probes of `outs` in `alf_MUSE.afh`
+* Glob `.sum` instead of `.mcmc` in `alf_MUSE.afh`, since these are the end product
