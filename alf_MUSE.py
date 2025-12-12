@@ -82,8 +82,7 @@ v1.21:  Replaced `photFilt` and `band` with `filt` kwarg. 22 October 2025
 v1.22:  Introduced toggle between binning algorithms. 23 October 2025
 v1.23:  Skip M/L calculation is `.bestspec2` file is missing;
         Removed superfluous probes of `outs` in `afh`. 11 December 2025
-v1.24:  Glob `.sum` instead of `.mcmc` in `afh`, since these are the end product.
-            12 December 2025
+v1.24:  Ensure `.sum` exists for every `.mcmc` in `afh`. 12 December 2025
 """
 from __future__ import print_function, division
 
@@ -1362,7 +1361,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
 
     print(f"Looking for \n{kfs} and \n{sffs}...")
     outs = np.sort([plp.Path(curdir/'results'/\
-        f"{galaxy}_SN{SN:02d}_{xi:04d}.sum") for xi in range(nSpat)])
+        f"{galaxy}_SN{SN:02d}_{xi:04d}.mcmc") for xi in range(nSpat)])
     # iterate over every potential aperture and check for existence individually
     if (not kfs.is_file()) or (not sffs.is_file()) or redraw:
         print(f"Looking for {afs}...")
@@ -1671,6 +1670,10 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         mlow=0.2, mhigh=1.0)[0], imfs)))
     xi = xiTop/xiBot
     ximin, ximax = POT.sigClip(xi, 'IMF', clipBins=0.025)
+
+    regex = re.compile(rf"^{galaxy}_SN{SN:02d}_[0-9]+.mcmc$")
+    outs = [dp for dp in plp.Path(curdir/'results').iterdir() if
+        regex.match(dp.name)]
 
     if 'kin' in pplots:
         gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)
@@ -2612,7 +2615,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 for ai, key in enumerate(pKeys):
                     maps[key] = np.ma.ones((nSpat, nPost))*np.nan
                 maps['ML'] = np.ma.ones((nSpat, nPost))*np.nan
-                for j, out in tqdm(enumerate(outs), total=nSpat,
+                for j, out in tqdm(enumerate(outs), total=len(outs),
                     desc='Generating posterior samples'):
                     alf = Alf(out.parent/out.stem, mPath=out.parent)
                     alf.get_total_met()
@@ -2653,7 +2656,14 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             else:
                 maps = au.Load.lzma(posfn)
         nrad = 12
-        eps = 1.-gal['sMGE'].epsE
+        regex = re.compile(rf'^{galaxy}*.mge$')
+        mgefile = [dp for dp in (dDir.parent/'muse'/'obsData').iterdir()
+            if regex.match(dp.name) if dp.is_file() and '-mass' not in dp.name]
+        if len(mgefile) == 0:
+            eps = 0.75
+        else:
+            sMGE = au.Load.mge(mgefile[0])
+            eps = sMGE.epsE
         rade = np.sqrt(xbin**2 + (ybin/eps)**2) # elliptical radius
         rore = np.argsort(rade)
         # rade = np.ma.masked_invalid(np.log10(rade[rore]))
@@ -2675,9 +2685,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         # colmar = [pair for pair in zip(symbs, dcols)]
         nrows = 6
         HIGH = False
-        if (len(aKeys) > 9) or (np.any([np.mean(SFH['abundances'][key])] for key in aKeys) > 0.6):
+        if (len(aKeys) > 9) or (np.any(np.asarray(list([np.mean(SFH['abundances'][key])] for key in aKeys)) > 0.6)):
             nrows += 2
-        if np.any([np.mean(SFH['abundances'][key])] for key in aKeys) > 0.6:
+        if np.any(np.asarray(list([np.mean(SFH['abundances'][key])] for key in aKeys)) > 0.6):
             HIGH = True
         if imft == 1 or imft == 3:
             nrows += 1
