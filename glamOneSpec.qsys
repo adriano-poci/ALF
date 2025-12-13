@@ -1,0 +1,24 @@
+#!/bin/bash -l
+
+# ------------------------------------------------------------------------------
+# Usage:
+# bash glamOneSpec.qsys -n 30 -q redwood -s "alf_NGC3630_SN120_1250" -g "NGC3630"
+# ------------------------------------------------------------------------------
+
+ncpu=1
+queue="cmb"
+spectrum=""
+galaxy=""
+
+while getopts ":n:q:s:g:" arg; do
+  case $arg in
+    n) ncpu=$OPTARG ;;
+    q) queue=$OPTARG ;;
+    s) spectrum=$OPTARG ;;
+    g) galaxy=$OPTARG  ;;
+  esac
+done
+
+echo "Submitting job with $ncpus CPUs to queue $queue for spectrum $spectrum and galaxy $galaxy"
+
+addqueue -s -q $queue -m 2.5 -n $ncpu -o "${spectrum}.out" -c "alf_oneSpec_${galaxy}_${spectrum}" "./oneSpec.qsys -s ${spectrum} -g ${galaxy}" -n $ncpu

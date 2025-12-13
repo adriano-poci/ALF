@@ -1,1 +1,1 @@
-* Ensure `.sum` exists for every `.mcmc` in `ald_MUSE.afh`
+* Added `glamOneSpec.qsys` and refined `oneSpec.qsys` to (re)launch individual jobs
