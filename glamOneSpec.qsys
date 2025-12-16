@@ -3,6 +3,11 @@
 # ------------------------------------------------------------------------------
 # Usage:
 # bash glamOneSpec.qsys -n 30 -q redwood -s "alf_NGC3630_SN120_1250" -g "NGC3630"
+#
+# for i in {100..2000}; do
+#   printf -v pad '%04d' "$i"; [[ -f /mnt/extraspace/poci/alf/results/NGC3630_SN120_${pad}.mcmc ]] || bash glamOneSpec.qsys -n 30 -q redwood -s "NGC3630_SN120_${pad}" -g "NGC3630"
+# done
+#
 # ------------------------------------------------------------------------------
 
 ncpu=1
