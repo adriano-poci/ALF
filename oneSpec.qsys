@@ -70,5 +70,4 @@ cd ${ALF_HOME}
 # exit
 # Run aperture fit
 
-mpirun --oversubscribe -np ${ncpu} ${ALF_HOME}${galaxy}/bin/alf.exe "$spectrum" 2>&1 | tee -a "$spectrum.log"
-  # 
+mpirun -np ${ncpu} --bind-to core ${ALF_HOME}${galaxy}/bin/alf.exe "$spectrum" 2>&1 | tee -a "$spectrum.log"
