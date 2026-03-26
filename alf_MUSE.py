@@ -1249,7 +1249,11 @@ def makeSpecFromSum(galaxy: str, SN: int = 100, full=True, NMP=1, apers=[],
     SN = int(SN)
 
     bofs = curdir/f"{galaxy}{dcName}"/f"binning_SN{SN:02d}_{tEnd}.xz"
-    PB = au.Load.lzma(bofs)
+    if bofs.is_file():
+        PB = au.Load.lzma(bofs)
+    else:
+        PB = au.Load.lzma(curdir/f"{galaxy}{dcName}"/\
+            f"voronoi_SN{SN:02d}_{tEnd}.xz")
     nSpat = PB['xbin'].size
 
     if len(apers) < 1:

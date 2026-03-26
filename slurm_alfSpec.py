@@ -36,9 +36,9 @@ v1.0:	14 July 2022
 # Custom modules
 import alf_MUSE as am
 
-# am.makeSpecFromSum('NGC4365', SN=100, NMP=16, full=True)
-# am.afh('NGC4365', SN=100, full=True, NMP=16, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False)
+am.makeSpecFromSum('NGC4365', SN=100, NMP=16, full=True)
+am.afh('NGC4365', SN=100, full=True, NMP=16, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False)
 # am.makeSpecFromSum('SNL1', SN=80, full=True, NMP=16, dcName='NFMESOouterError')
 # am.afh('SNL1', SN=80, NMP=16, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, full=True, dcName='NFMESOouterError', posterior=True)
-am.makeSpecFromSum('NGC3630', SN=120, full=True, NMP=24,)
-am.afh('NGC3630', SN=120, NMP=24, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, full=True, posterior=True, redraw=True)
+# am.makeSpecFromSum('NGC3630', SN=120, full=True, NMP=24,)
+# am.afh('NGC3630', SN=120, NMP=24, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, full=True, posterior=True, redraw=True)

@@ -133,17 +133,17 @@ PROGRAM ALF
   prhi%loghot = -4.0
   prlo%loghot = -6.0
 
-!   opos%sih          = 0.0
-!   opos%kh           = 0.0
-!   opos%vh           = 0.0
-!   opos%crh          = 0.0
-!   opos%mnh          = 0.0
-!   opos%coh          = 0.0
-!   opos%nih          = 0.0
-!   opos%cuh          = 0.0
-!   opos%srh          = 0.0
-!   opos%bah          = 0.0
-!   opos%euh          = 0.0
+  opos%sih          = 0.0
+  opos%kh           = 0.0
+  opos%vh           = 0.0
+  opos%crh          = 0.0
+  opos%mnh          = 0.0
+  opos%coh          = 0.0
+  opos%nih          = 0.0
+  opos%cuh          = 0.0
+  opos%srh          = 0.0
+  opos%bah          = 0.0
+  opos%euh          = 0.0
 ! !   opos%imf3 = 0.15
 
   prlo%velz = -999.0
@@ -512,17 +512,17 @@ PROGRAM ALF
 
         CALL STR2ARR(1,opos,pos_emcee_in(:,j))
 
-      !  pos_emcee_in(11, :) = 0.0 ! sih
-      !  pos_emcee_in(12, :) = 0.0 ! kh
-      !  pos_emcee_in(15, :) = 0.0 ! vh
-      !  pos_emcee_in(16, :) = 0.0 ! crh
-      !  pos_emcee_in(17, :) = 0.0 ! mnh
-      !  pos_emcee_in(18, :) = 0.0 ! coh
-      !  pos_emcee_in(19, :) = 0.0 ! nih
-      !  pos_emcee_in(20, :) = 0.0 ! cuh
-      !  pos_emcee_in(21, :) = 0.0 ! srh
-      !  pos_emcee_in(22, :) = 0.0 ! bah
-      !  pos_emcee_in(23, :) = 0.0 ! euh
+       pos_emcee_in(11, :) = 0.0 ! sih
+       pos_emcee_in(12, :) = 0.0 ! kh
+       pos_emcee_in(15, :) = 0.0 ! vh
+       pos_emcee_in(16, :) = 0.0 ! crh
+       pos_emcee_in(17, :) = 0.0 ! mnh
+       pos_emcee_in(18, :) = 0.0 ! coh
+       pos_emcee_in(19, :) = 0.0 ! nih
+       pos_emcee_in(20, :) = 0.0 ! cuh
+       pos_emcee_in(21, :) = 0.0 ! srh
+       pos_emcee_in(22, :) = 0.0 ! bah
+       pos_emcee_in(23, :) = 0.0 ! euh
       !   pos_emcee_in(43, :) = 0.15 ! IMF cutoff
 
 
@@ -568,17 +568,17 @@ PROGRAM ALF
              lp_emcee_in,pos_emcee_out,lp_emcee_out,accept_emcee,ntasks-1)
         pos_emcee_in = pos_emcee_out
         lp_emcee_in  = lp_emcee_out
-         ! pos_emcee_in(11, :) = 0.0 ! sih
-         ! pos_emcee_in(12, :) = 0.0 ! kh
-         ! pos_emcee_in(15, :) = 0.0 ! vh
-         ! pos_emcee_in(16, :) = 0.0 ! crh
-         ! pos_emcee_in(17, :) = 0.0 ! mnh
-         ! pos_emcee_in(18, :) = 0.0 ! coh
-         ! pos_emcee_in(19, :) = 0.0 ! nih
-         ! pos_emcee_in(20, :) = 0.0 ! cuh
-         ! pos_emcee_in(21, :) = 0.0 ! srh
-         ! pos_emcee_in(22, :) = 0.0 ! bah
-         ! pos_emcee_in(23, :) = 0.0 ! euh
+         pos_emcee_in(11, :) = 0.0 ! sih
+         pos_emcee_in(12, :) = 0.0 ! kh
+         pos_emcee_in(15, :) = 0.0 ! vh
+         pos_emcee_in(16, :) = 0.0 ! crh
+         pos_emcee_in(17, :) = 0.0 ! mnh
+         pos_emcee_in(18, :) = 0.0 ! coh
+         pos_emcee_in(19, :) = 0.0 ! nih
+         pos_emcee_in(20, :) = 0.0 ! cuh
+         pos_emcee_in(21, :) = 0.0 ! srh
+         pos_emcee_in(22, :) = 0.0 ! bah
+         pos_emcee_in(23, :) = 0.0 ! euh
       !   pos_emcee_in(43, :) = 0.15 ! IMF cutoff
         IF (i.EQ.nburn/4.*1) THEN
            WRITE (*,'(A)',advance='no') ' ...25%'
@@ -626,17 +626,17 @@ PROGRAM ALF
                 lp_emcee_in,pos_emcee_out,lp_emcee_out,accept_emcee,ntasks-1)
            pos_emcee_in = pos_emcee_out
            lp_emcee_in  = lp_emcee_out
-         !  pos_emcee_in(11, :) = 0.0 ! sih
-         !  pos_emcee_in(12, :) = 0.0 ! kh
-         !  pos_emcee_in(15, :) = 0.0 ! vh
-         !  pos_emcee_in(16, :) = 0.0 ! crh
-         !  pos_emcee_in(17, :) = 0.0 ! mnh
-         !  pos_emcee_in(18, :) = 0.0 ! coh
-         !  pos_emcee_in(19, :) = 0.0 ! nih
-         !  pos_emcee_in(20, :) = 0.0 ! cuh
-         !  pos_emcee_in(21, :) = 0.0 ! srh
-         !  pos_emcee_in(22, :) = 0.0 ! bah
-         !  pos_emcee_in(23, :) = 0.0 ! euh
+          pos_emcee_in(11, :) = 0.0 ! sih
+          pos_emcee_in(12, :) = 0.0 ! kh
+          pos_emcee_in(15, :) = 0.0 ! vh
+          pos_emcee_in(16, :) = 0.0 ! crh
+          pos_emcee_in(17, :) = 0.0 ! mnh
+          pos_emcee_in(18, :) = 0.0 ! coh
+          pos_emcee_in(19, :) = 0.0 ! nih
+          pos_emcee_in(20, :) = 0.0 ! cuh
+          pos_emcee_in(21, :) = 0.0 ! srh
+          pos_emcee_in(22, :) = 0.0 ! bah
+          pos_emcee_in(23, :) = 0.0 ! euh
          !   pos_emcee_in(43, :) = 0.15 ! IMF cutoff
            IF (i.EQ.nburn/4.*1) THEN
               WRITE (*,'(A)',advance='no') ' ...25%'
@@ -674,17 +674,17 @@ PROGRAM ALF
         pos_emcee_in = pos_emcee_out
         lp_emcee_in  = lp_emcee_out
 		
-      ! pos_emcee_in(11, :) = 0.0 ! sih
-      ! pos_emcee_in(12, :) = 0.0 ! kh
-      ! pos_emcee_in(15, :) = 0.0 ! vh
-      ! pos_emcee_in(16, :) = 0.0 ! crh
-      ! pos_emcee_in(17, :) = 0.0 ! mnh
-      ! pos_emcee_in(18, :) = 0.0 ! coh
-      ! pos_emcee_in(19, :) = 0.0 ! nih
-      ! pos_emcee_in(20, :) = 0.0 ! cuh
-      ! pos_emcee_in(21, :) = 0.0 ! srh
-      ! pos_emcee_in(22, :) = 0.0 ! bah
-      ! pos_emcee_in(23, :) = 0.0 ! euh
+      pos_emcee_in(11, :) = 0.0 ! sih
+      pos_emcee_in(12, :) = 0.0 ! kh
+      pos_emcee_in(15, :) = 0.0 ! vh
+      pos_emcee_in(16, :) = 0.0 ! crh
+      pos_emcee_in(17, :) = 0.0 ! mnh
+      pos_emcee_in(18, :) = 0.0 ! coh
+      pos_emcee_in(19, :) = 0.0 ! nih
+      pos_emcee_in(20, :) = 0.0 ! cuh
+      pos_emcee_in(21, :) = 0.0 ! srh
+      pos_emcee_in(22, :) = 0.0 ! bah
+      pos_emcee_in(23, :) = 0.0 ! euh
       !   pos_emcee_in(43, :) = 0.15 ! IMF cutoff
 		
         totacc       = totacc + SUM(accept_emcee)
