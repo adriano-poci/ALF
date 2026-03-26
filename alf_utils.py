@@ -1469,7 +1469,7 @@ def oneSpec(spectrum, labels=['velz', 'sigma', 'h3', 'h4', 'logage', 'zH',
         ers = f"{arm[lab][bidx]: .4f} +/- {arm[lab][eidx]: .4f}"
         print(f"{lab: >15s} | {ers: >30s}")
     print(f"{'M/L_{F814W}': >15s} | {MLF814W: >30.4f}")
-    pdb.set_trace()
+    # pdb.set_trace()
     return alf
 
 # ------------------------------------------------------------------------------
