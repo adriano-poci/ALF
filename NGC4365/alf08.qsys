@@ -7,7 +7,7 @@
 #SBATCH --ntasks=24
 #SBATCH --mem-per-cpu=2200
 #SBATCH --mail-type=TIME_LIMIT_90,TIME_LIMIT,FAIL
-#SBATCH --mail-user=adriano.poci@students.mq.edu.au
+#SBATCH --mail-user=adriano.poci@physics.ox.ac.uk
 #SBATCH --array=0-214
 
 source ${HOME}/.bashrc
