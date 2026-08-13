@@ -1311,7 +1311,6 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     Examples
     --------
     am.afh('SNL1', SN=80, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, full=True, dcName='NFMESOouterError', posterior=True)
-    am.afh('NGC4365', SN=100, full=True, band='F814W', photFilt='WFPC2.F814W', vsys=True, FOV=False, posterior=True)
     am.afh('NGC3630', SN=100, filt='WFPC2.F814W', vsys=True, FOV=False, full=True, posterior=True)
     """    
 
@@ -3067,6 +3066,28 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
 
 def showPlots(galaxy, apers, SN=100, clabels=None, pplots=['spec', 'corn'],
     dcName=''):
+    """
+    Show plots for the given galaxy and aperture.
+
+    Parameters
+    ----------
+    galaxy : str
+        Name of the galaxy.
+    apers : list
+        List of apertures to plot.
+    SN : int, optional
+        Signal-to-noise ratio. Default is 100.
+    clabels : list, optional
+        List of labels for the colorbar. Default is None.
+    pplots : list, optional
+        List of plots to generate. Default is ['spec', 'corn'].
+    dcName : str, optional
+        Name of the data cube. Default is ''.
+
+    Examples
+    --------
+    >>> am.showPlots('NGC4365', np.arange(2300)[::100], SN=100, clabels=['velz', 'sigma', 'h3', 'h4', 'logage', 'FeH', 'IMF1', 'Na', 'a', 'Ti', 'C', 'N', 'Mg', 'Ca'])
+    """
 
     mDir = curdir/f"{galaxy}{dcName}"
     cfn = mDir/'config.xz'
@@ -3149,7 +3170,7 @@ def showPlots(galaxy, apers, SN=100, clabels=None, pplots=['spec', 'corn'],
         if 'corn' in pplots:
             print('Plotting corner...')
             from corner import corner
-            lidx = np.array([np.where(np.in1d(alf.labels, clab))[0] for clab in
+            lidx = np.array([np.where(np.isin(alf.labels, clab))[0] for clab in
                 clabels]).ravel()
             # ensure the order of the labels matches the order of the data
             # columns
