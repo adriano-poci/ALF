@@ -83,6 +83,7 @@ v1.22:  Introduced toggle between binning algorithms. 23 October 2025
 v1.23:  Skip M/L calculation is `.bestspec2` file is missing;
         Removed superfluous probes of `outs` in `afh`. 11 December 2025
 v1.24:  Ensure `.sum` exists for every `.mcmc` in `afh`. 12 December 2025
+v1.25:  Use rendered labels for `corner` in `showPlots`. 17 August 2026
 """
 from __future__ import print_function, division
 
@@ -3174,16 +3175,19 @@ def showPlots(galaxy, apers, SN=100, clabels=None, pplots=['spec', 'corn'],
                 clabels]).ravel()
             # ensure the order of the labels matches the order of the data
             # columns
-            plabels = alf.labels[lidx].tolist()
-            if 'a' in plabels:
-                plabels[plabels.index('a')] = 'O'
-            if 'FeH' in plabels:
-                plabels[plabels.index('FeH')] = 'Fe'
+            plabels = [au.labelDict.get(label, label) for label in
+                alf.labels[lidx].tolist()]
             fig = plt.figure(figsize=plt.figaspect(1.)*1.6)
             fig = corner(alf.mcmc[:, lidx],
                 labels=plabels, smooth=0.8, plot_contours=False, labelpad=0.5,
                 max_n_ticks=2, plot_datapoints=False, plot_density=True,
                 fig=fig, pcolor_kwargs=dict(cmap=rocket))
+            ndim = len(lidx)
+            axes = np.array(fig.axes).reshape((ndim, ndim))
+            for ax in axes[-1, :]:
+                ax.xaxis.label.set_rotation(45)
+                ax.xaxis.label.set_ha('right')
+                ax.xaxis.label.set_va('top')
             fig.savefig(mDir/f"corner_{astr}")
         if 'post' in pplots:
             print('Plotting posteriors...')
@@ -3618,5 +3622,281 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
             ax.set_ylabel(r'$y\ [{\rm arcsec}]$', labelpad=7)
         fig.savefig(curdir/galaxy/f"symmDiff_{nMom:d}_SN{SN:02d}")
         plt.close('all')
+
+# ------------------------------------------------------------------------------
+
+def plotStackedSpectra(galaxy, apers, SN=100, dcName='',
+    spec_sep=1.0, resid_height=0.15, pair_gap=0.25,
+    save_name='spec_stacked.pdf'):
+    """
+    Plot multiple spectral fits and residuals vertically on one axis.
+
+    Each aperture is represented by a spectral fit with its residuals
+    immediately below it. Successive spectrum/residual pairs are vertically
+    offset to produce a single stacked spectral plot.
+
+    Parameters
+    ----------
+    galaxy : str
+        Name of the galaxy.
+    apers : array_like
+        Apertures to plot.
+    SN : int, optional
+        Signal-to-noise ratio. Default is 100.
+    dcName : str, optional
+        Name appended to the galaxy directory. Default is ''.
+    spec_sep : float, optional
+        Vertical range assigned to each normalized spectrum. Default is 1.0.
+    resid_height : float, optional
+        Vertical range corresponding to +/- 5 percent residuals. Default is
+        0.15.
+    pair_gap : float, optional
+        Vertical gap between successive spectrum/residual pairs. Default is
+        0.25.
+    save_name : str, optional
+        Output filename. Default is 'spec_stacked.pdf'.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure containing the stacked spectra.
+    ax : matplotlib.axes.Axes
+        Axes containing the stacked spectra.
+
+    Raises
+    ------
+    OSError
+        If an input spectrum or best-fit spectrum cannot be read.
+
+    Examples
+    --------
+    >>> fig, ax = plotStackedSpectra(
+    ...     'NGC4365',
+    ...     np.arange(2300)[::100],
+    ...     SN=100,
+    ... )
+    """
+    mDir = curdir / f"{galaxy}{dcName}"
+
+    apers = np.atleast_1d(apers)[::-1]
+
+    pair_height = spec_sep + resid_height + pair_gap
+
+    fig_height = max(6.0, 0.8 * len(apers))
+    fig, ax = plt.subplots(
+        figsize=(12, fig_height),
+        constrained_layout=True,
+    )
+
+    xmin = np.inf
+    xmax = -np.inf
+
+    for ii, aper in enumerate(apers):
+        if 'aperture' in str(aper):
+            astr = aper
+        else:
+            astr = f"{aper:04d}"
+
+        ofn = (
+            curdir / 'results' /
+            f"{galaxy}_SN{SN:02d}_{astr}.mcmc"
+        )
+        ifn = (
+            curdir / 'indata' /
+            f"{galaxy}_SN{SN:02d}_{astr}.dat"
+        )
+
+        waves, tPix, spec, err, weights, vel = au.readSpec(ifn)
+
+        mwave, model, sinp, merr, _, mres = np.loadtxt(
+            ofn.parent / f"{ofn.stem}.bestspec",
+            unpack=True,
+        )
+
+        # -------------------------------------------------------------
+        # Establish the vertical locations for this pair.
+        #
+        # The spectrum occupies roughly:
+        #
+        #     spec_base --> spec_base + spec_sep
+        #
+        # while the residuals sit immediately below spec_base.
+        # -------------------------------------------------------------
+        pair_base = ii * pair_height
+
+        resid_base = pair_base
+        spec_base = pair_base + resid_height
+
+        # -------------------------------------------------------------
+        # Normalize the spectrum locally so all apertures have a
+        # comparable visual height.
+        # -------------------------------------------------------------
+        good = weights > 0.5
+
+        if np.any(good):
+            smin = np.nanpercentile(spec[good], 1.0)
+            smax = np.nanpercentile(spec[good], 99.0)
+        else:
+            smin = np.nanmin(spec)
+            smax = np.nanmax(spec)
+
+        scale = smax - smin
+
+        if not np.isfinite(scale) or scale <= 0.0:
+            scale = 1.0
+
+        spec_plot = (
+            spec_base +
+            spec_sep * (spec - smin) / scale
+        )
+        model_plot = (
+            spec_base +
+            spec_sep * (model - smin) / scale
+        )
+
+        # -------------------------------------------------------------
+        # Input spectrum.
+        # -------------------------------------------------------------
+        for wpair in waves:
+            ww = np.where(
+                (tPix >= wpair[0] * 1e4) &
+                (tPix <= wpair[1] * 1e4)
+            )[0]
+
+            ax.plot(
+                tPix[ww],
+                spec_plot[ww],
+                lw=0.45,
+                c='k',
+                zorder=2,
+            )
+
+        # Best-fitting model.
+        ax.plot(
+            mwave,
+            model_plot,
+            lw=0.6,
+            c='r',
+            zorder=3,
+        )
+
+        # -------------------------------------------------------------
+        # Construct the residual mask exactly as in showPlots().
+        # -------------------------------------------------------------
+        mask = (
+            (tPix >= (mwave.min() - 1.0)) &
+            (tPix <= (mwave.max() + 1.0))
+        )
+
+        temp = tPix[mask][
+            np.ma.getmaskarray(
+                np.ma.masked_less(weights[mask], 0.5)
+            )
+        ]
+
+        mwm = np.array(
+            [
+                np.argmin(np.abs(tempi - mwave))
+                for tempi in temp
+            ],
+            dtype=int,
+        )
+
+        newm = np.zeros_like(mwave, dtype=bool)
+        newm[mwm] = True
+
+        residual = np.ma.masked_array(
+            (sinp - model) / sinp * 100.0,
+            mask=newm,
+        )
+
+        # Map +/- 5 percent onto +/- resid_height / 2.
+        residual_plot = (
+            resid_base +
+            residual * (0.5 * resid_height / 5.0)
+        )
+
+        ax.scatter(
+            mwave,
+            residual_plot,
+            marker='.',
+            c='g',
+            s=3,
+            linewidths=0,
+            zorder=2,
+        )
+
+        # Zero-residual reference line.
+        ax.axhline(
+            resid_base,
+            lw=0.4,
+            ls='--',
+            c='0.6',
+            zorder=1,
+        )
+
+        # -------------------------------------------------------------
+        # Shade masked spectral regions.
+        # -------------------------------------------------------------
+        bad = weights < 0.5
+
+        if np.any(bad):
+            ax.fill_between(
+                tPix,
+                resid_base - 0.5 * resid_height,
+                spec_base + spec_sep,
+                where=bad,
+                alpha=0.08,
+                facecolor='k',
+                linewidth=0,
+                zorder=0,
+            )
+
+        # Aperture label.
+        ax.text(
+            mwave.min()+10.0,
+            spec_base + 0.75 * spec_sep,
+            str(astr),
+            ha='left',
+            va='center',
+            fontsize=8,
+        )
+
+        xmin = min(xmin, mwave.min(), tPix.min())
+        xmax = max(xmax, mwave.max(), tPix.max())
+
+    # -----------------------------------------------------------------
+    # Final formatting.
+    # -----------------------------------------------------------------
+    ax.set_xlim(xmin - 20.0, xmax + 20.0)
+
+    ymin = -0.6 * resid_height
+    ymax = (
+        (len(apers) - 1) * pair_height +
+        resid_height +
+        spec_sep +
+        0.1 * spec_sep
+    )
+
+    ax.set_ylim(ymin, ymax)
+
+    ax.set_xlabel(rf"Wavelength $[{UTS.angst}]$")
+
+    # Absolute y values no longer have physical meaning after stacking.
+    ax.set_ylabel('Normalized flux + offset')
+    ax.set_yticks([])
+
+    # Clean presentation.
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.tick_params(axis='y', left=False)
+
+    fig.savefig(
+        mDir / save_name,
+        bbox_inches='tight',
+    )
+
+    return fig, ax
 
 # ------------------------------------------------------------------------------

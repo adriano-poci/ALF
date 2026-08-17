@@ -1,0 +1,2 @@
+* Added `labelDict` to render labels in `corner` plots in `alf_utils`
+* Use rendered labels for `corner` in `alf_MUSE.showPlots`

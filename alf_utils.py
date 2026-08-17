@@ -51,6 +51,7 @@ v1.17:  Added `SolarAbundance` and `SumMetals` to get total metallicity from
             individual abundances. 7 June 2025
 v1.18:  Cleaned out unecessary functions. 26 July 2025
 v1.19:  Replaced `photFilt` and `band` with `filt` kwarg. 22 October 2025
+v1.20:  Added `labelDict` to render labels in `corner` plots. 17 August 2026
 """
 from __future__ import print_function, division
 
@@ -98,6 +99,42 @@ rocket = sns.color_palette('rocket', as_cmap=True)
 rocketr = sns.color_palette('rocket_r', as_cmap=True)
 
 UTS = UnitStr()
+
+labelDict = dict(
+    logage=r'$\log_{10}(t)$ [Gyr]',
+    FeH=r'$[{\rm Fe}/ {\rm H}]$',
+    zH=r'$[{\rm Z}/{\rm H}]$',
+    IMF1=r'$\alpha_1$',
+    IMF2=r'$\alpha_2$',
+    IMF3=r'$m_{\rm cut}$',
+    IMF4=r'$m_{\rm max}$',
+    velz=r'$V_{\rm sys}$ [km/s]',
+    sigma=r'$\sigma$ [km/s]',
+    h3=r'$h3$',
+    h4=r'$h4$',
+    chi2=r'$\chi^2$',
+    Na=r'$[{\rm Na}/ {\rm H}]$',
+    a=r'$[{\rm O}/ {\rm H}]$',
+    Ca=r'$[{\rm Ca}/ {\rm H}]$',
+    C=r'$[{\rm C}/ {\rm H}]$',
+    N=r'$[{\rm N}/ {\rm H}]$',
+    Mg=r'$[{\rm Mg}/ {\rm H}]$',
+    Si=r'$[{\rm Si}/ {\rm H}]$',
+    Ti=r'$[{\rm Ti}/ {\rm H}]$',
+    Cr=r'$[{\rm Cr}/ {\rm H}]$',
+    Mn=r'$[{\rm Mn}/ {\rm H}]$',
+    Co=r'$[{\rm Co}/ {\rm H}]$',
+    Ni=r'$[{\rm Ni}/ {\rm H}]$',
+    Cu=r'$[{\rm Cu}/ {\rm H}]$',
+    Zn=r'$[{\rm Zn}/ {\rm H}]$',
+    Sr=r'$[{\rm Sr}/ {\rm H}]$',
+    Y=r'$[{\rm Y}/ {\rm H}]$',
+    Zr=r'$[{\rm Zr}/ {\rm H}]$',
+    Ba=r'$[{\rm Ba}/ {\rm H}]$',
+    Eu=r'$[{\rm Eu}/ {\rm H}]$',
+    V=r'$[{\rm V}/ {\rm H}]$',
+    K=r'$[{\rm K}/ {\rm H}]$',
+)
 
 # ------------------------------------------------------------------------------
 
