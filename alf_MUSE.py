@@ -1735,9 +1735,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 ha='left', color=POT.pgreen, transform=ax.transAxes, zorder=200)
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-            cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+            cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
                 rotation=270, color='w', transform=cax.transAxes)
-            cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+            cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
                 rotation=270, color=ytc, transform=cax.transAxes)
             cb.set_ticks([])
             cax.set_zorder(100)
@@ -1830,9 +1830,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 ha='left', color=POT.pgreen, transform=ax.transAxes, zorder=200)
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-            cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+            cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
                 rotation=270, color='w', transform=cax.transAxes)
-            cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+            cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
                 rotation=270, color='k', transform=cax.transAxes)
             cb.set_ticks([])
             cax.set_zorder(100)
@@ -1925,9 +1925,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             ha='left', color=POT.pgreen, transform=ax.transAxes, zorder=200)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-        cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+        cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
             rotation=270, color='w', transform=cax.transAxes)
-        cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+        cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
             rotation=270, color='k', transform=cax.transAxes)
         cb.set_ticks([])
         cax.set_zorder(100)
@@ -1960,9 +1960,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 ha='left', color=POT.pgreen, transform=ax.transAxes, zorder=200)
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-            cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+            cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
                 rotation=270, color='w', transform=cax.transAxes)
-            cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+            cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
                 rotation=270, color='k', transform=cax.transAxes)
             cb.set_ticks([])
             cax.set_zorder(100)
@@ -1995,9 +1995,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 zorder=200)
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-            cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+            cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
                 rotation=270, color='w', transform=cax.transAxes)
-            cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+            cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
                 rotation=270, color='k', transform=cax.transAxes)
             cb.set_ticks([])
             cax.set_zorder(100)
@@ -2033,9 +2033,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             #     rotation=270, color=POT.pgreen, transform=cax.transAxes)
             lT.set_path_effects(
                 [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-            cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+            cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
                 rotation=270, color='w', transform=cax.transAxes)
-            cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+            cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
                 rotation=270, color='k', transform=cax.transAxes)
             cb.set_ticks([])
             cax.set_zorder(100)
@@ -2110,9 +2110,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             ha='left', color=POT.pgreen, transform=ax.transAxes, zorder=200)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-        cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+        cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
             rotation=270, color='w', transform=cax.transAxes)
-        cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+        cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
             rotation=270, color='k', transform=cax.transAxes)
         cb.set_ticks([])
         cax.set_zorder(100)
@@ -2184,9 +2184,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             ha='left', color=POT.pgreen, transform=ax.transAxes, zorder=200)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-        cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+        cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
             rotation=270, color='w', transform=cax.transAxes)
-        cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+        cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
             rotation=270, color='k', transform=cax.transAxes)
         cb.set_ticks([])
         cax.set_zorder(100)
@@ -2259,9 +2259,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         #     transform=cax.transAxes)
         # lT.set_path_effects(
         #     [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-        cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+        cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
             rotation=270, color='w', transform=cax.transAxes)
-        cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+        cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
             rotation=270, color='k', transform=cax.transAxes)
         cb.set_ticks([])
         cax.set_zorder(100)
@@ -2316,9 +2316,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             #     transform=cax.transAxes)
             # lT.set_path_effects(
             #     [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-            cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+            cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
                 rotation=270, color='w', transform=cax.transAxes)
-            cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+            cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
                 rotation=270, color='k', transform=cax.transAxes)
             cb.set_ticks([])
             cax.set_zorder(100)
@@ -2481,9 +2481,9 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             zorder=200)
         lT.set_path_effects(
             [PathEffects.withStroke(linewidth=1.5, foreground='k')])
-        cax.text(0.45, 1e-3, miText, va='bottom', ha='center',
+        cax.text(0.45, 5e-3, miText, va='bottom', ha='center',
             rotation=270, color='w', transform=cax.transAxes)
-        cax.text(0.45, 1.-1e-3, maText, va='top', ha='center',
+        cax.text(0.45, 1.-5e-3, maText, va='top', ha='center',
             rotation=270, color='k', transform=cax.transAxes)
         cb.set_ticks([])
         cax.set_zorder(100)
@@ -3188,6 +3188,12 @@ def showPlots(galaxy, apers, SN=100, clabels=None, pplots=['spec', 'corn'],
                 ax.xaxis.label.set_rotation(45)
                 ax.xaxis.label.set_ha('right')
                 ax.xaxis.label.set_va('top')
+            if ndim > 2:
+                ax_label = axes[1, 2]
+                ax_label.set_axis_off()
+                ax_label.text(0.05, 0.5, rf"${astr.lstrip('0')}$",
+                    transform=ax_label.transAxes, ha='left',
+                    va='center', fontsize=14,)
             fig.savefig(mDir/f"corner_{astr}")
         if 'post' in pplots:
             print('Plotting posteriors...')
@@ -3683,10 +3689,8 @@ def plotStackedSpectra(galaxy, apers, SN=100, dcName='',
     pair_height = spec_sep + resid_height + pair_gap
 
     fig_height = max(6.0, 0.8 * len(apers))
-    fig, ax = plt.subplots(
-        figsize=(12, fig_height),
-        constrained_layout=True,
-    )
+    fig, ax = plt.subplots(figsize=plt.figaspect(fig_height/12)*0.8,
+        constrained_layout=True,)
 
     xmin = np.inf
     xmax = -np.inf
@@ -3856,7 +3860,7 @@ def plotStackedSpectra(galaxy, apers, SN=100, dcName='',
         ax.text(
             mwave.min()+10.0,
             spec_base + 0.75 * spec_sep,
-            str(astr),
+            rf"${astr.lstrip('0')}$",
             ha='left',
             va='center',
             fontsize=8,
