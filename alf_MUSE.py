@@ -3633,7 +3633,7 @@ def _kinShow(galaxy, SN, nMom=6, vsys=True, debug=False, full=False,
 
 def plotStackedSpectra(galaxy, apers, SN=100, dcName='',
     spec_sep=1.0, resid_height=0.15, pair_gap=0.25,
-    save_name='spec_stacked.pdf'):
+    save_name='spec_stacked.png'):
     """
     Plot multiple spectral fits and residuals vertically on one axis.
 
