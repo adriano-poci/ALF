@@ -84,6 +84,10 @@ v1.23:  Skip M/L calculation is `.bestspec2` file is missing;
         Removed superfluous probes of `outs` in `afh`. 11 December 2025
 v1.24:  Ensure `.sum` exists for every `.mcmc` in `afh`. 12 December 2025
 v1.25:  Use rendered labels for `corner` in `showPlots`. 17 August 2026
+v1.26:  Renamed first `outs` to `expected` in `afh` to reflect better its
+            intention;
+        Fixed bug in `outs` regex which could detect files from legacy binning
+            in `afh`. 20 August 2026 
 """
 from __future__ import print_function, division
 
@@ -1364,15 +1368,15 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     print(RZ)
 
     print(f"Looking for \n{kfs} and \n{sffs}...")
-    outs = np.sort([plp.Path(curdir/'results'/\
+    # All expected apertures
+    expected = np.sort([plp.Path(curdir/'results'/\
         f"{galaxy}_SN{SN:02d}_{xi:04d}.mcmc") for xi in range(nSpat)])
-    # iterate over every potential aperture and check for existence individually
     if (not kfs.is_file()) or (not sffs.is_file()) or redraw:
         print(f"Looking for {afs}...")
         if (not afs.is_file()) or redraw:
             print('Generating...')
             ALF = dict()
-            for j, out in tqdm(enumerate(outs), desc='Reading ALF',
+            for j, out in tqdm(enumerate(expected), desc='Reading ALF',
                     total=nSpat):
                 if not out.is_file():
                     print(f"Missing {out}...")
@@ -1396,8 +1400,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 ALF[aper] is None])
             if incomplete.size > 0:
                 print(f"Found {incomplete.size} incomplete ALF runs.")
-                print(outs[incomplete])
-                for j, out in tqdm(enumerate(outs[incomplete]),
+                print(expected[incomplete])
+                for j, out in tqdm(enumerate(expected[incomplete]),
                         desc='Re-reading ALF', total=len(incomplete)):
                     try:
                         alf = Alf(out.parent/out.stem, mPath=out.parent)
@@ -1455,8 +1459,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         aMask = [ki for ki, key in enumerate(np.take(_popKeys,
             np.arange(2, 20)+1)) if (key in ALF['0000'].labels) and
             (np.ptp([ALF[f"{ap:04d}"].results[key][mIdx] for ap, out in
-                enumerate(outs) if not isinstance(ALF[f"{ap:04d}"], type(None))
-                ]) > 1e-3)]
+                enumerate(expected) if not isinstance(
+                    ALF[f"{ap:04d}"], type(None))]) > 1e-3)]
         aKeys = np.take(np.take(_popKeys, np.arange(2, 20)+1), aMask)
         aLabels = np.take(aLabels, aMask)
         SFH['abundances']['keys'] = aKeys
@@ -1675,9 +1679,15 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     xi = xiTop/xiBot
     ximin, ximax = POT.sigClip(xi, 'IMF', clipBins=0.025)
 
-    regex = re.compile(rf"^{galaxy}_SN{SN:02d}_[0-9]+.mcmc$")
-    outs = [dp for dp in plp.Path(curdir/'results').iterdir() if
-        regex.match(dp.name)]
+    # Unlike `expected`, check the filesystem for which file exist
+    # Match full name but make sure index is less than nSpat in case of legacy
+    # binned files
+    regex = re.compile(rf"{re.escape(galaxy)}_SN{SN:02d}_([0-9]+)\.mcmc")
+    outs = np.sort([
+        dp for dp in plp.Path(curdir / 'results').iterdir()
+        if (match := regex.fullmatch(dp.name))
+        and int(match.group(1)) < nSpat
+    ])
 
     if 'kin' in pplots:
         gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)
@@ -2688,7 +2698,6 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             # 'color'][::-1], 3)[:len(symbs)]
         # colmar = [pair for pair in zip(symbs, dcols)]
         nrows = 6
-        HIGH = False
         if (len(aKeys) > 9) or (np.any(np.asarray(list([np.mean(SFH['abundances'][key])] for key in aKeys)) > 0.6)):
             nrows += 2
         if np.any(np.asarray(list([np.mean(SFH['abundances'][key])] for key in aKeys)) > 0.6):
@@ -3088,6 +3097,7 @@ def showPlots(galaxy, apers, SN=100, clabels=None, pplots=['spec', 'corn'],
     Examples
     --------
     >>> am.showPlots('NGC4365', np.arange(2300)[::100], SN=100, clabels=['velz', 'sigma', 'h3', 'h4', 'logage', 'FeH', 'IMF1', 'Na', 'a', 'Ti', 'C', 'N', 'Mg', 'Ca'])
+    showPlots(galaxy, picks, propDict['SN'], clabels=['logage', 'FeH', 'Na', 'a', 'C', 'N', 'Mg', 'Ca', 'Ti', 'IMF1', 'velz', 'sigma', 'h3', 'h4'])
     """
 
     mDir = curdir/f"{galaxy}{dcName}"
