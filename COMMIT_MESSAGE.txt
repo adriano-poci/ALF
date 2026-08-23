@@ -1,2 +1,0 @@
-* Renamed first `outs` to `expected` in `alf_MUSE.afh` to reflect better its intention
-* Fixed bug in `outs` regex which could detect files from legacy binning in `alf_MUSE.afh`
