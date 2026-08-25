@@ -88,6 +88,8 @@ v1.26:  Renamed first `outs` to `expected` in `afh` to reflect better its
             intention;
         Fixed bug in `outs` regex which could detect files from legacy binning
             in `afh`. 20 August 2026 
+v1.27:  Fixed bug in `afh` where `rore` was applied twice for abundances. 25
+            August 2026
 """
 from __future__ import print_function, division
 
@@ -2682,13 +2684,15 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         rore = np.argsort(rade)
         # rade = np.ma.masked_invalid(np.log10(rade[rore]))
         rade = np.ma.masked_invalid(rade[rore])
-        medBins = np.linspace(*POT.sigClip(np.append(1e-3, rade), 'radius', 0.1), nrad+1)
+        medBins = np.linspace(*POT.sigClip(np.append(1e-3, rade), 'radius', 0.1),
+            nrad+1)
         delta = medBins[1:] - medBins[:-1]
         idx = np.digitize(rade, medBins[:-1])
         pBins = medBins[1:] - delta/2
         symbs = ['X', 'p', '^', '<', '>', '8', 's', 'D', 'P', '*', 'h', 'H',
-            '+', 'x', 'o', 'v', r'$\ast$', '.', 'd', r'$\ddagger$', r'$\scurel$',
-            r'$\maltese$', r'$\flat$', r'$\natural$']+ list(np.arange(4)+4) + \
+            '+', 'x', 'o', 'v', r'$\ast$', '.', 'd', r'$\ddagger$',
+            r'$\scurel$', r'$\maltese$', r'$\flat$',
+            r'$\natural$']+ list(np.arange(4)+4) + \
             ['1', '3']
         colos = plt.rcParams['axes.prop_cycle'].by_key()['color'] + ['#0b89d5',
             '#DE3163', '#DFFF00', '#FF00FF', '#ff9966', '#520e25', '#000000',
@@ -2698,9 +2702,11 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             # 'color'][::-1], 3)[:len(symbs)]
         # colmar = [pair for pair in zip(symbs, dcols)]
         nrows = 6
-        if (len(aKeys) > 9) or (np.any(np.asarray(list([np.mean(SFH['abundances'][key])] for key in aKeys)) > 0.6)):
+        if (len(aKeys) > 9) or (np.any(np.asarray(list(
+            [np.mean(SFH['abundances'][key])] for key in aKeys)) > 0.6)):
             nrows += 2
-        if np.any(np.asarray(list([np.mean(SFH['abundances'][key])] for key in aKeys)) > 0.6):
+        if np.any(np.asarray(list([np.mean(SFH['abundances'][key])] for key in
+            aKeys)) > 0.6):
             HIGH = True
         if imft == 1 or imft == 3:
             nrows += 1
@@ -2801,7 +2807,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             label = SFH['abundances']['labels'][aj]
             mkr = symbs[ai]
             col = colos[aj]
-            amed = np.array([np.ma.median(abund[rore][idx==k])
+            amed = np.array([np.ma.median(abund[idx==k])
                 for k in np.arange(nrad)+1])
             amed = np.ma.masked_invalid(amed)
             amask = ~np.ma.getmaskarray(amed)
@@ -2821,7 +2827,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
                     marker=mkr, mfc=col, label=label, mew=0.75, mec='k',
                     ecolor=col, ms=12, zorder=len(aKeys)-aj)
-                aerr = np.array([np.ma.std(abund[rore][idx==k]) for k in
+                aerr = np.array([np.ma.std(abund[idx==k]) for k in
                     np.arange(nrad)+1])/2.
                 ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
                     amed[amask]-aerr[amask], alpha=0.1, color=col)
@@ -2849,7 +2855,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 label = SFH['abundances']['labels'][aj+9]
                 mkr = symbs[ai]
                 col = colos[aj]
-                amed = np.array([np.ma.median(abund[rore][idx==k])
+                amed = np.array([np.ma.median(abund[idx==k])
                     for k in np.arange(nrad)+1])
                 amed = np.ma.masked_invalid(amed)
                 amask = ~np.ma.getmaskarray(amed)
@@ -2869,7 +2875,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                     ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
                         marker=mkr, mfc=col, label=label, mew=0.75, mec='k',
                         ecolor=col, ms=12, zorder=len(aKeys)-aj)
-                    aerr = np.array([np.ma.std(abund[rore][idx==k]) for k in
+                    aerr = np.array([np.ma.std(abund[idx==k]) for k in
                         np.arange(nrad)+1])/2.
                     ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
                         amed[amask]-aerr[amask], alpha=0.1, color=col)
@@ -2963,6 +2969,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         kpAx.set_xticklabels([])
         axi += 1
 
+        imft = 0 # disable \xi
         if imft == 1 or imft == 3:
             ax = main.add_subplot(gs[axi])
             ai += 1
@@ -3201,7 +3208,7 @@ def showPlots(galaxy, apers, SN=100, clabels=None, pplots=['spec', 'corn'],
             if ndim > 2:
                 ax_label = axes[1, 2]
                 ax_label.set_axis_off()
-                ax_label.text(0.05, 0.5, rf"${astr.lstrip('0')}$",
+                ax_label.text(0.05, 0.5, rf"${str(aper)}$",
                     transform=ax_label.transAxes, ha='left',
                     va='center', fontsize=14,)
             fig.savefig(mDir/f"corner_{astr}")
