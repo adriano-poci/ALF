@@ -90,6 +90,7 @@ v1.26:  Renamed first `outs` to `expected` in `afh` to reflect better its
             in `afh`. 20 August 2026 
 v1.27:  Fixed bug in `afh` where `rore` was applied twice for abundances. 25
             August 2026
+v1.28:  Corrected abundance definitions and `Fe/H` in `afh`. 18 November 2026
 """
 from __future__ import print_function, division
 
@@ -117,6 +118,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm, ticker
 import matplotlib.gridspec as gridspec
 import matplotlib.patheffects as PathEffects
+from matplotlib.ticker import FuncFormatter
 import seaborn as sns
 import multiprocessing as mp
 from functools import partial
@@ -1451,13 +1453,13 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         SFH['fyage'] = np.ma.ones(nSpat)*np.nan
         SFH['fyagee'] = np.ma.ones(nSpat)*np.nan
         SFH['abundances'] = dict()
-        aLabels = [r'$[{\rm O/H}]$', r'$[{\rm C/H}]$',
-            r'$[{\rm N/H}]$', r'$[{\rm Na/H}]$', r'$[{\rm Mg/H}]$',
-            r'$[{\rm Si/H}]$', r'$[{\rm K/H}]$', r'$[{\rm Ca/H}]$',
-            r'$[{\rm Ti/H}]$', r'$[{\rm V/H}]$', r'$[{\rm Cr/H}]$',
-            r'$[{\rm Mn/H}]$', r'$[{\rm Co/H}]$', r'$[{\rm Ni/H}]$',
-            r'$[{\rm Cu/H}]$', r'$[{\rm Sr/H}]$', r'$[{\rm Ba/H}]$',
-            r'$[{\rm Eu/H}]$']
+        aLabels = [r'$[{\alpha/Fe}]$', r'$[{\rm C/Fe}]$',
+            r'$[{\rm N/Fe}]$', r'$[{\rm Na/Fe}]$', r'$[{\rm Mg/Fe}]$',
+            r'$[{\rm Si/Fe}]$', r'$[{\rm K/Fe}]$', r'$[{\rm Ca/Fe}]$',
+            r'$[{\rm Ti/Fe}]$', r'$[{\rm V/Fe}]$', r'$[{\rm Cr/Fe}]$',
+            r'$[{\rm Mn/Fe}]$', r'$[{\rm Co/Fe}]$', r'$[{\rm Ni/Fe}]$',
+            r'$[{\rm Cu/Fe}]$', r'$[{\rm Sr/Fe}]$', r'$[{\rm Ba/Fe}]$',
+            r'$[{\rm Eu/Fe}]$']
         aMask = [ki for ki, key in enumerate(np.take(_popKeys,
             np.arange(2, 20)+1)) if (key in ALF['0000'].labels) and
             (np.ptp([ALF[f"{ap:04d}"].results[key][mIdx] for ap, out in
@@ -1503,10 +1505,10 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 SFH['IMF']['2e'][aper] = SFH['IMF']['1e'][aper]
             for ak in aKeys:
                 SFH['abundances'][f"{ak}"][aper] = \
-                    ALF[f"{aper:04d}"].xFe[ak][bestKey] +\
-                    ALF[f"{aper:04d}"].results['FeH'][mIdx]
-                # use the `corrected` xFe abundances, but convert them back to
-                # [X/H] by adding the FeH abundance
+                    ALF[f"{aper:04d}"].xFe[ak][bestKey]# +\
+                    # ALF[f"{aper:04d}"].results['FeH'][mIdx]
+                ## use the `corrected` xFe abundances, but convert them back to
+                ## [X/H] by adding the FeH abundance
                 SFH['abundances'][f"{ak}e"][aper] = \
                     ALF[f"{aper:04d}"].results[ak][eIdx]
             SFH['age'][aper] = \
@@ -1523,8 +1525,11 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 10.0**(ALF[f"{aper:04d}"].results['logfy'][eIdx])
             SFH['zH'][aper] = ALF[f"{aper:04d}"].results['zH'][mIdx]
             SFH['zHe'][aper] = ALF[f"{aper:04d}"].results['zH'][eIdx]
-            SFH['FeH'][aper] = ALF[f"{aper:04d}"].results['FeH'][mIdx]
-            SFH['FeHe'][aper] = ALF[f"{aper:04d}"].results['FeH'][eIdx]
+            SFH['FeH'][aper] = ALF[f"{aper:04d}"].results['FeH'][mIdx]+\
+                SFH['zH'][aper] # [Fe/H] = FeH + zH
+            SFH['FeHe'][aper] = np.sqrt(
+                ALF[f"{aper:04d}"].results['FeH'][eIdx]**2 +\
+                SFH['zHe'][aper]**2) # [Fe/H] = FeH + zH
             # MLa = au.getM2L('solar',
             #     ALF[f"{aper:04d}"].results['logage'][mIdx], SFH['zH'][aper],
             #     SFH['IMF']['1'][aper], SFH['IMF']['2'][aper], 2.3, RZ=RZ,
@@ -1685,11 +1690,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
     # Match full name but make sure index is less than nSpat in case of legacy
     # binned files
     regex = re.compile(rf"{re.escape(galaxy)}_SN{SN:02d}_([0-9]+)\.mcmc")
-    outs = np.sort([
-        dp for dp in plp.Path(curdir / 'results').iterdir()
-        if (match := regex.fullmatch(dp.name))
-        and int(match.group(1)) < nSpat
-    ])
+    outs = np.sort([dp for dp in plp.Path(curdir / 'results').iterdir()
+        if (match := regex.fullmatch(dp.name)) and int(match.group(1)) < nSpat])
 
     if 'kin' in pplots:
         gs = gridspec.GridSpec(rDim, cDim, hspace=0.0, wspace=0.0)
@@ -2623,7 +2625,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             posfn = mDir/f"afh_elements_posteriors_SN{SN:02d}.xz"
             nPost = 500
             if not posfn.is_file():
-                pKeys = np.unique(np.append(aKeys, ['logage', 'FeH', 'IMF1',
+                pKeys = np.unique(np.append(aKeys, ['logage', 'IMF1',
                     'IMF2', 'zH']))
                 if imft == 0:
                     pKeys = np.delete(pKeys, np.where(pKeys=='IMF2')[0])
@@ -2631,12 +2633,14 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                 for ai, key in enumerate(pKeys):
                     maps[key] = np.ma.ones((nSpat, nPost))*np.nan
                 maps['ML'] = np.ma.ones((nSpat, nPost))*np.nan
+                maps['FeH'] = np.ma.ones((nSpat, nPost))*np.nan
+                # Handle iron abundance separately
                 for j, out in tqdm(enumerate(outs), total=len(outs),
                     desc='Generating posterior samples'):
                     alf = Alf(out.parent/out.stem, mPath=out.parent)
                     alf.get_total_met()
                     alf.normalize_spectra()
-                    # alf.abundance_correct() # convert [X/H] to [X/Fe]
+                    alf.abundance_correct() # convert [X/H] to [X/Fe]
                     for ai, key in enumerate(pKeys):
                         aidx = alfFP.index(key)
                         maps[key][j, :] = np.random.choice(alf.mcmc[:, aidx],
@@ -2667,6 +2671,10 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                                 maps['IMF1'][j, :], maps['IMF2'][j, :],
                                 np.repeat(2.3, nPost), RZ=RZ, filt=filt,
                                     **kwargs)
+                    key = 'FeH'
+                    aidx = alfFP.index(key)
+                    maps[key][j, :] = (np.random.choice(alf.mcmc[:, aidx],
+                        nPost, replace=False)+maps['zH'][j, :])
                     # use these random samples, don't re-sample.
                 au.Write.lzma(posfn, maps)
             else:
@@ -2684,8 +2692,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         rore = np.argsort(rade)
         # rade = np.ma.masked_invalid(np.log10(rade[rore]))
         rade = np.ma.masked_invalid(rade[rore])
-        medBins = np.linspace(*POT.sigClip(np.append(1e-3, rade), 'radius', 0.1),
-            nrad+1)
+        medBins = np.linspace(*POT.sigClip(np.append(1e-3, rade), 'radius',
+            0.1), nrad+1)
         delta = medBins[1:] - medBins[:-1]
         idx = np.digitize(rade, medBins[:-1])
         pBins = medBins[1:] - delta/2
@@ -2781,8 +2789,8 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
             ax.errorbar(pBins[amask], amed[amask], yerr=aerr[amask],
                 marker=mkr, mfc=col, mew=0.75, mec='k', ecolor=col, ms=12,
                 label=r'$[\mathrm{Fe/H}]$', zorder=50)
-            aerr = np.array([np.ma.std(SFH['FeH'][rore][idx==k]) for k in
-                np.arange(nrad)+1])/2.
+            aerr = np.array([np.ma.std(SFH['FeH'][rore][idx==k])
+                for k in np.arange(nrad)+1])/2.
             ax.fill_between(pBins[amask], amed[amask]+aerr[amask],
                 amed[amask]-aerr[amask], alpha=0.1, color=col)
         ax.set_xlim(right=medBins[idx.max()])
@@ -2790,8 +2798,7 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
         ax.set_ylabel(r'$[\mathrm{Fe/H}]$')
         kpAx = ax.twiny()
         # kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *
-        kpAx.set_xlim(np.array(ax.get_xlim()) * RZ.getPC() *
-            1e-3)
+        kpAx.set_xlim(np.array(ax.get_xlim()) * RZ.getPC() * 1e-3)
         # kpAx.set_xlabel(fr"$r\ [{UTS.kpace}]$")
         kpAx.tick_params(labelbottom=False, labeltop=True, bottom=False,
             top=True)
@@ -2833,8 +2840,13 @@ def afh(galaxy='NGC3115', SN=100, full=True, FOV=True, vsys=False,
                     amed[amask]-aerr[amask], alpha=0.1, color=col)
         ax.legend(ncol=4, loc='upper center')
         ax.set_xlim(right=medBins[idx.max()])
-        ax.set_ylim(top=np.max(ax.get_ylim())+np.ptp(ax.get_ylim())*0.4)
-        # ax.set_xlabel(r'$\log_{10}(R\ [{\rm arcsec}]$)')
+        data_max = ax.get_ylim()[1]
+        ax.set_ylim(top=data_max + np.ptp(ax.get_ylim()) * 0.4)
+        ticks = ax.get_yticks()
+        upper_ticks = ticks[ticks > data_max]
+        keep_tick = upper_ticks[0] if len(upper_ticks) else np.inf
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, pos: f'{y:g}'
+    if y <= keep_tick else ''))
         ax.set_ylabel(r'${\rm Abundance}\ [{\rm dex}]$')
         kpAx = ax.twiny()
         # kpAx.set_xlim(np.log10(10.0**np.array(ax.get_xlim()) * RZ.getPC() *
